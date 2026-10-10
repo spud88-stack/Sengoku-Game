@@ -3,6 +3,7 @@ import { clamp, Rng } from '../core/math';
 import { Fighter, type Controller } from './fighter';
 import { STRATS, type StratId } from '../data/stratagems';
 import { Terrain } from './terrain';
+import { blocks, buildCastles, crosses, WALL_HALF, type Castle, type Gate } from './castle';
 import type { HitDef, MoveDef, OfficerDef, SimEvent } from './types';
 
 const S = TUNE.soldier;
@@ -54,6 +55,8 @@ export interface Soldier {
   spin: number;
   /** a squad captain is close enough to steady this soldier */
   buff: boolean;
+  /** id of the gate this soldier is battering, or -1 */
+  bash: number;
 }
 
 /** Soldier kinds. Each asks something different of the player. */
@@ -188,6 +191,10 @@ export class World {
   def: BattleDef;
   /** the shape of the ground; the sim itself stays in ground-relative heights */
   terrain: Terrain;
+  /** walled camps: castles, temples, barbicans */
+  castles: Castle[];
+  gates: Gate[];
+  private gateT = 0;
   diff: Difficulty;
   player: Fighter | null = null;
   playerTeam = 0;
@@ -231,7 +238,10 @@ export class World {
     this.rng = new Rng(seed);
     this.diff = DIFFICULTY[difficulty] ?? DIFFICULTY.normal;
     this.reserves = [...def.reserves];
-    this.obstacles = def.obstacles ?? [];
+    this.castles = buildCastles(def);
+    this.gates = this.castles.flatMap((c) => c.gates);
+    // nobody walks through a castle keep
+    this.obstacles = [...(def.obstacles ?? []), ...this.castles.flatMap((c) => (c.keep ? [{ x: c.keep.x, z: c.keep.z, r: 4.6 }] : []))];
     this.terrain = new Terrain(def);
     this.gridN = Math.ceil((def.half * 2) / CELL) + 1;
     // start empty: the view can query the grid on a frame too short to have run the first step
@@ -415,6 +425,7 @@ export class World {
       phase: this.rng.range(0, 6.28),
       spin: 0,
       buff: false,
+      bash: -1,
     } satisfies Soldier);
     this.alive[team]++;
     return s;
@@ -516,6 +527,19 @@ export class World {
       this.hitSoldier(s, a, hit, nx, nz, dmgMul);
       connected++;
     });
+
+    // gates splinter under officers' blows
+    for (const g of this.gates) {
+      if (g.broken || g.team === a.team || set.has(-100000 - g.id)) continue;
+      const dx = g.x - a.x,
+        dz = g.z - a.z;
+      const d = Math.hypot(dx, dz);
+      if (d > range + 2.6) continue;
+      if (d > 2.6 && (dx * fx + dz * fz) / d < Math.min(cosHalf, 0.2)) continue;
+      set.add(-100000 - g.id);
+      this.hitGate(g, hit.dmg * dmgMul * (a.isPlayer ? 2 : 0.6), a);
+      if (involved) stop = Math.max(stop, hit.stop);
+    }
 
     for (const o of this.fighters) {
       if (o.team === a.team || o === a || set.has(-o.id)) continue;
@@ -681,6 +705,8 @@ export class World {
   captureBase(b: Base, team: number, by: Fighter | null) {
     const old = b.team;
     b.team = team;
+    // whoever holds the castle holds its gates
+    for (const c of this.castles) if (c.base === b.id) for (const g of c.gates) g.team = team;
     b.garrison = b.maxGarrison * 0.7;
     b.threat = 0;
     for (const s of this.soldiers) if (s.active && s.base === b.id) s.base = -1;
@@ -763,6 +789,158 @@ export class World {
     return best;
   }
 
+  // ------------------------------------------------------------ castles
+  /**
+   * Where someone on `team` at (x, z) should head to reach (tx, tz) when a castle wall is in the way:
+   * round the walls to a gate, through it, or to the shut gate they must batter down. Null if the way is clear.
+   */
+  route(team: number, x: number, z: number, tx: number, tz: number): { x: number; z: number; gate: Gate; bash: boolean } | null {
+    for (const c of this.castles) {
+      const inP = (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r,
+        inT = (tx - c.x) ** 2 + (tz - c.z) ** 2 < c.r * c.r;
+      if (inP === inT) {
+        // both outside, but the straight line runs into the castle: skirt round it
+        if (!inP && this.cutsCastle(c, x, z, tx, tz)) return this.skirt(c, x, z, Math.atan2(tx - c.x, tz - c.z), c.gates[0]);
+        continue;
+      }
+      // a gate they can use, or failing that the one they'll have to break
+      let g = c.gates[0],
+        best = Infinity;
+      for (const o of c.gates) {
+        const cost = Math.hypot(o.x - x, o.z - z) + Math.hypot(o.x - tx, o.z - tz) + (o.broken || o.team === team ? 0 : 400);
+        if (cost < best) {
+          best = cost;
+          g = o;
+        }
+      }
+      const open = g.broken || g.team === team;
+      const side = inP ? -1 : 1;
+      const ax = g.x + g.nx * side * 2.2,
+        az = g.z + g.nz * side * 2.2;
+      if (!inP && this.cutsCastle(c, x, z, ax, az)) return this.skirt(c, x, z, Math.atan2(g.x - c.x, g.z - c.z), g);
+      if (!open) return { x: g.x + g.nx * side * 1.2, z: g.z + g.nz * side * 1.2, gate: g, bash: true };
+      if (Math.hypot(x - g.x, z - g.z) > 3) return { x: ax, z: az, gate: g, bash: false };
+      // lined up: step through
+      return { x: g.x - g.nx * side * 3.5, z: g.z - g.nz * side * 3.5, gate: g, bash: false };
+    }
+    return null;
+  }
+
+  /** Walk round the outside of a castle toward the bearing `toward` (from its centre). */
+  private skirt(c: Castle, x: number, z: number, toward: number, gate: Gate) {
+    const a = Math.atan2(x - c.x, z - c.z);
+    let da = toward - a;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    const na = a + Math.sign(da) * Math.min(Math.abs(da), 0.7);
+    const r = c.r + 4;
+    return { x: c.x + Math.sin(na) * r, z: c.z + Math.cos(na) * r, gate, bash: false };
+  }
+
+  private cutsCastle(c: Castle, x: number, z: number, tx: number, tz: number) {
+    for (const w of c.walls) if (crosses(x, z, tx, tz, w.ax, w.az, w.bx, w.bz)) return true;
+    return false;
+  }
+
+  /** AI officers follow the same roads round and through the walls, and batter shut gates. */
+  private steerOfficer(f: Fighter) {
+    const it = f.intent;
+    const mag = Math.hypot(it.mx, it.mz);
+    if (mag < 0.1) return;
+    const look = 14;
+    const rt = this.route(f.team, f.x, f.z, f.x + (it.mx / mag) * look, f.z + (it.mz / mag) * look);
+    if (!rt) return;
+    const dx = rt.x - f.x,
+      dz = rt.z - f.z,
+      d = Math.hypot(dx, dz) || 1;
+    it.mx = (dx / d) * mag;
+    it.mz = (dz / d) * mag;
+    if (rt.bash && Math.hypot(rt.gate.x - f.x, rt.gate.z - f.z) < f.reach + 2.4) {
+      it.mx = (rt.gate.x - f.x) * 0.01;
+      it.mz = (rt.gate.z - f.z) * 0.01;
+      f.face = Math.atan2(rt.gate.x - f.x, rt.gate.z - f.z);
+      if (f.state === 'free' && this.rng.chance(0.25)) it.light = true;
+    }
+  }
+
+  hitGate(g: Gate, dmg: number, by: Fighter | null, team = by ? by.team : 1 - g.team) {
+    if (g.broken) return;
+    g.hp -= dmg;
+    g.hitT = 0.25;
+    this.events.push({ type: 'gate', phase: 'hit', id: g.id, x: g.x, z: g.z });
+    if (g.hp > 0) return;
+    g.hp = 0;
+    g.broken = true;
+    g.open = true;
+    const c = this.castles[g.castle];
+    this.addMorale(team, 5);
+    this.log(`${by ? by.def.name : `${this.def.sides[team]} troops`} broke through the gate of ${c.name}!`, team, team === this.playerTeam ? 'good' : 'bad');
+    this.events.push({ type: 'gate', phase: 'break', id: g.id, x: g.x, z: g.z });
+    this.events.push({ type: 'banner', title: 'Gate Broken', sub: c.name, good: team === this.playerTeam });
+  }
+
+  /** Keep someone on the side of the wall they came from. */
+  private wallPush(o: { x: number; z: number; px: number; pz: number }, rad: number, team: number) {
+    for (const c of this.castles) {
+      const dc = Math.hypot(o.x - c.x, o.z - c.z);
+      if (Math.abs(dc - c.r) > rad + 3) continue;
+      for (const w of c.walls) {
+        if (!blocks(w, team)) continue;
+        const vx = w.bx - w.ax,
+          vz = w.bz - w.az,
+          len2 = vx * vx + vz * vz;
+        const t = Math.max(0, Math.min(1, ((o.x - w.ax) * vx + (o.z - w.az) * vz) / len2));
+        const cx = w.ax + vx * t,
+          cz = w.az + vz * t;
+        const min = rad + WALL_HALF;
+        const ex = o.x - cx,
+          ez = o.z - cz,
+          d = Math.hypot(ex, ez);
+        if (d >= min) continue;
+        if (t > 0 && t < 1) {
+          // which side were they on a moment ago?
+          const len = Math.sqrt(len2);
+          const nx = -vz / len,
+            nz = vx / len;
+          let sd = (o.px - w.ax) * nx + (o.pz - w.az) * nz;
+          if (Math.abs(sd) < 1e-4) sd = (o.x - w.ax) * nx + (o.z - w.az) * nz || 1;
+          const sg = Math.sign(sd);
+          o.x = cx + nx * sg * min;
+          o.z = cz + nz * sg * min;
+        } else if (d > 1e-5) {
+          o.x = cx + (ex / d) * min;
+          o.z = cz + (ez / d) * min;
+        }
+      }
+    }
+  }
+
+  private updateWalls(dt: number) {
+    for (const s of this.soldiers) if (s.active && s.st !== SS.Corpse && s.st !== SS.Down) this.wallPush(s, S.radius, s.team);
+    for (const g of this.gates) g.hitT = Math.max(0, g.hitT - dt);
+    if ((this.gateT -= dt) > 0) return;
+    this.gateT = 0.25;
+    // gates swing open for their own side when no enemy is close
+    for (const g of this.gates) {
+      if (g.broken) continue;
+      let own = false,
+        foe = false;
+      this.forNear(g.x, g.z, 7, (s) => {
+        if (s.dead) return;
+        const d2 = (s.x - g.x) ** 2 + (s.z - g.z) ** 2;
+        if (s.team === g.team && d2 < 25) own = true;
+        else if (s.team !== g.team && d2 < 49) foe = true;
+      });
+      for (const f of this.fighters) {
+        if (f.dead) continue;
+        const d2 = (f.x - g.x) ** 2 + (f.z - g.z) ** 2;
+        if (f.team === g.team && d2 < 25) own = true;
+        else if (f.team !== g.team && d2 < 49) foe = true;
+      }
+      g.open = own && !foe;
+    }
+  }
+
   // ------------------------------------------------------------ stratagems
   addCommand(team: number, n: number) {
     this.command[team] = Math.min(ST.max, this.command[team] + n);
@@ -811,6 +989,8 @@ export class World {
         const b = this.nearestBase(by.x, by.z, (o) => o.team === foe && !o.main) ?? this.nearestBase(by.x, by.z, (o) => o.team === foe);
         if (!b) return false;
         b.garrison = Math.max(1, b.garrison * 0.5);
+        // and the fire takes hold of the gates
+        for (const c of this.castles) if (c.base === b.id) for (const g of c.gates) if (!g.broken) this.hitGate(g, g.maxHp * 0.4, null, team);
         b.threat = 6;
         this.addMorale(team, 6);
         // the defenders scatter from the flames; a few never get up
@@ -933,11 +1113,16 @@ export class World {
     this.rebuildGrid();
 
     for (const f of this.fighters) {
-      if (f.controller && f.state !== 'dead') f.controller(f, this, dt);
+      if (f.controller && f.state !== 'dead') {
+        f.controller(f, this, dt);
+        if (!f.isPlayer && this.castles.length) this.steerOfficer(f);
+      }
       f.update(this, dt);
     }
     this.separateFighters();
+    if (this.castles.length) for (const f of this.fighters) if (!f.dead) this.wallPush(f, TUNE.fighter.radius * f.scale, f.team);
     this.updateSoldiers(dt);
+    if (this.castles.length) this.updateWalls(dt);
     this.updateShots(dt);
     this.updateItems(dt);
     this.updateStratagems(dt);
@@ -1288,6 +1473,18 @@ export class World {
       }
       if (ranged && hasTarget) want = 13 + (s.uid % 5);
       if (cav && hasTarget) want = 0.5;
+      // walls in the way: go round by a gate, or batter down the one that's shut
+      let bashGate: Gate | null = null;
+      if (this.castles.length && s.st === SS.Free && !(ranged && hasTarget && (tx - s.x) ** 2 + (tz - s.z) ** 2 < 21 * 21)) {
+        const rt = this.route(s.team, s.x, s.z, tx, tz);
+        if (rt) {
+          tx = rt.x;
+          tz = rt.z;
+          hasTarget = false;
+          tr = 0;
+          if (rt.bash) bashGate = rt.gate;
+        }
+      }
       const dx = tx - s.x,
         dz = tz - s.z;
       const d = Math.hypot(dx, dz) || 0.001;
@@ -1301,7 +1498,12 @@ export class World {
           s.t = S.strike;
           this.events.push({ type: 'soldierSwing', x: s.x, z: s.z });
           const mm0 = this.moraleMul(s.team) * (s.team !== this.playerTeam ? this.diff.enemyDmg : 1) * (s.buff ? 1.4 : 1) * (this.drumT[s.team] > 0 ? ST.drumDmg : 1);
-          if (ranged) {
+          const bg = s.bash >= 0 ? this.gates[s.bash] : null;
+          s.bash = -1;
+          if (bg && (bg.x - s.x) ** 2 + (bg.z - s.z) ** 2 < 12) {
+            const g = bg;
+            if (!g.broken) this.hitGate(g, S.dmgToSoldier * mm0 * (s.kind === SK.Captain ? 2 : 1), null, s.team);
+          } else if (ranged) {
             // loose at where the target is now: anyone who keeps moving is missed
             if (hasTarget) {
               const gun = s.kind === SK.Gunner;
@@ -1440,6 +1642,15 @@ export class World {
             s.st = SS.Windup;
             s.t = S.windup * 1.3;
           }
+        }
+      } else if (bashGate && d < 2.4) {
+        // at the gate: put a shoulder (or a spear butt) into it
+        s.face = Math.atan2(bashGate.x - s.x, bashGate.z - s.z);
+        if (s.cd <= 0) {
+          s.bash = bashGate.id;
+          s.st = SS.Windup;
+          s.t = S.windup;
+          s.cd = this.rng.range(S.cooldown[0], S.cooldown[1]);
         }
       } else if (d > 1.5) {
         mvx = nx;

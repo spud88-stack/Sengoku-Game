@@ -43,6 +43,8 @@ Keys can be rebound under Settings. Settings also has a Graphics level: High add
 
 Light attacks chain into a string. Pressing Heavy at any point in the string ends it with a different finisher: on its own it breaks guards, after one Light it launches, after two it is a flurry into a stun, after three it clears everything around you, after four it launches and slams. Jump after a launcher to keep the combo going in the air. Dodge cancels the end of most attacks. Filling the gold gauge buys an invulnerable Ougi; the violet gauge buys Shura, a short spell of extra speed and damage.
 
+Castles and temples (Ueda, Osaka and the Sanada Barbican, Honnoji, and every castle in Empire Mode) are walled, with three gates. Their own side passes freely; attackers must batter a gate down, troops and officers alike, and a broken gate stays open. Sabotage sets the gates alight too.
+
 Bases fall when their garrison is cut down and no defending officer is standing inside. A battle is won by defeating the enemy commander, taking their main camp, or routing their army.
 
 Stratagems cost command points (the diamonds under your bars). You start with one, earn more by holding the field, every 60 KOs, every officer defeated and every camp taken, and can bank up to five:

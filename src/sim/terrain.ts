@@ -1,5 +1,6 @@
 import { clamp } from '../core/math';
 import type { BattleDef } from './world';
+import { isWalled, wallRadius } from './castle';
 
 type P2 = [number, number];
 
@@ -121,7 +122,7 @@ export class Terrain {
     let seed = 7;
     for (const ch of def.id) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
     // camps sit on level ground at the height the land had there, raised if they are hill forts
-    const camps = def.bases.map((b, i) => ({ x: b.x, z: b.z, r: (b.main ? 14 : 11) + 3, lift: nameRaise(b.name) + (this.spec.raise?.[i] ?? 0), top: 0 }));
+    const camps = def.bases.map((b, i) => ({ x: b.x, z: b.z, r: isWalled(b.name) ? wallRadius(!!b.main) + 4 : (b.main ? 14 : 11) + 3, lift: nameRaise(b.name) + (this.spec.raise?.[i] ?? 0), top: 0 }));
     for (const c of camps) c.top = Math.max(this.land(c.x, c.z, seed, def.half) + c.lift, this.water === null ? -Infinity : this.water + 0.4);
     for (let j = 0; j < this.n; j++)
       for (let i = 0; i < this.n; i++) {

@@ -286,6 +286,22 @@ export class Hud {
       Y = (z: number) => N / 2 - z * k * flip;
     g.clearRect(0, 0, N, N);
     g.drawImage(this.relief(w, N, flip), 0, 0);
+    // castle walls, and their gates in the colours of whoever holds them
+    for (const c of w.castles) {
+      g.strokeStyle = '#e9e2cf';
+      g.lineWidth = names ? 3 : 2;
+      for (const wl of c.walls) {
+        if (wl.gate) continue;
+        g.beginPath();
+        g.moveTo(X(wl.ax), Y(wl.az));
+        g.lineTo(X(wl.bx), Y(wl.bz));
+        g.stroke();
+      }
+      for (const gt of c.gates) {
+        g.fillStyle = gt.broken ? '#2a2420' : hex(this.teamColors[gt.team]);
+        g.fillRect(X(gt.x) - 3, Y(gt.z) - 3, 6, 6);
+      }
+    }
     for (const b of w.bases) {
       g.fillStyle = b.team < 0 ? '#8a8578' : hex(this.teamColors[b.team]);
       g.globalAlpha = 0.45;

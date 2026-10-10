@@ -8,6 +8,7 @@ Build brief: `PROMPT.md`. Player-facing notes: `README.md`. Node lives in `~/.lo
   - `fighter.ts` officer state machine shared by player and AI, including mounts.
   - `ai.ts` officer AI: strategic goals plus the duel layer.
   - `empire.ts` Empire Mode: economy, commands, diplomacy, AI clans, auto-resolve, and `engagementBattle` which turns an invasion into a `BattleDef`.
+  - `castle.ts` walls and gates around castles and temples: the sim keeps everyone on their side of a wall, routes troops and AI officers through gates, and lets attackers batter shut ones down.
   - `terrain.ts` the shape of each field (hills, rivers, ridges, raised camps), baked into a height grid shared by sim and view.
 - `src/view/` Three.js: `rig.ts`/`pose.ts`/`anims.ts` (procedural samurai, clips built from move timings), `crowd.ts` (instanced troops, horses, arrows), `fx.ts`, `scene.ts` (stage, terrain mesh, sky shader, weather), `grass.ts` (tiles of instanced grass around the player), `gfx.ts` (quality levels, bloom), `battleView.ts`, `portrait.ts`.
 - `src/ui/` DOM: `hud.ts`, `screens.ts` (all menus), `empireScreens.ts`, `tutorial.ts`.
@@ -35,6 +36,6 @@ Build brief: `PROMPT.md`. Player-facing notes: `README.md`. Node lives in `~/.lo
 ## Known rough spots / next
 - Attack animation is readable but stiff; the off hand does not truly grip polearms and mounted legs are a fixed pose.
 - AI officers never mount horses.
-- No castle interiors, gates or walls; every map is the same seven-camp layout (five at Honnoji) with different names, armies, skies and events.
+- Every map is the same seven-camp layout (five at Honnoji) with different names, armies, skies and events.
 - Free Mode has no weapon drops or skill unlocks; progression is levels only.
 - Balance was tuned from headless statistics and short scripted sessions, not from long hands-on play.
