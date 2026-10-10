@@ -1,6 +1,7 @@
 import type { Fighter } from '../sim/fighter';
 import type { World } from '../sim/world';
 import { TUNE } from '../data/tuning';
+import { STRATS } from '../data/stratagems';
 
 const el = (cls: string, html = '', parent?: HTMLElement) => {
   const d = document.createElement('div');
@@ -13,6 +14,7 @@ const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 export class Hud {
   root: HTMLElement;
+  private plate: HTMLElement;
   private hpFill: HTMLElement;
   private hpLag: HTMLElement;
   private spirit: HTMLElement;
@@ -40,6 +42,9 @@ export class Hud {
   debug: HTMLElement;
   private hint: HTMLElement;
   private missionEl: HTMLElement;
+  private stratPips: HTMLElement[] = [];
+  private stratCards: HTMLElement[] = [];
+  private drumEl: HTMLElement;
   private lastKo = -1;
   private comboCount = 0;
   maxCombo = 0;
@@ -52,17 +57,31 @@ export class Hud {
 
   constructor(parent: HTMLElement, private teamColors: number[], player: Fighter, sides: string[]) {
     const r = (this.root = el('hud', '', parent));
+    el('vignette cine', '', r);
     this.hurt = el('vignette hurt', '', r);
     this.superFx = el('vignette superfx', '', r);
     this.rageFx = el('vignette ragefx', '', r);
     this.flashEl = el('flash', '', r);
 
-    const plate = el('panel plate', `<div class="name">${player.def.name}</div><div class="title">${player.def.title}</div>`, r);
+    const plate = (this.plate = el('panel plate', `<div class="name"></div><div class="title"></div>`, r));
     const hp = el('bar hp', '<i class="lag"></i><i class="fill"></i>', plate);
     this.hpLag = hp.children[0] as HTMLElement;
     this.hpFill = hp.children[1] as HTMLElement;
     this.spirit = el('bar spirit', '<i></i>', plate);
     this.rage = el('bar rage', '<i></i>', plate);
+
+    // stratagems: command points and the four calls, under the player's bars
+    const strat = el('panel strats', '', r);
+    const pips = el('pips', '<small>COMMAND</small>', strat);
+    for (let i = 0; i < TUNE.strat.max; i++) this.stratPips.push(el('pip', '<i></i>', pips));
+    this.drumEl = el('drum', '陣太鼓', pips);
+    const cards = el('cards', '', strat);
+    const pad = ['↑', '→', '↓', '←'];
+    STRATS.forEach((d, i) => {
+      const c = el('scard', `<span class="key">${i + 1}<em>${pad[i]}</em></span><b>${d.kanji}</b><span class="nm">${d.name}</span><span class="cost">${'◆'.repeat(d.cost)}</span>`, cards);
+      c.title = d.desc;
+      this.stratCards.push(c);
+    });
 
     const mor = el('panel morale', `<div class="row"><span class="l"></span><span>MORALE</span><span class="r"></span></div><div class="track"><i></i></div>`, r);
     this.moraleFill = mor.querySelector('.track i') as HTMLElement;
@@ -91,9 +110,16 @@ export class Hud {
     this.map = mm.querySelector('canvas')!;
     this.mctx = this.map.getContext('2d')!;
     this.debug = el('panel debug', '', r);
-    this.hint = el('panel hint', 'WASD move · Mouse look · LMB/J light · RMB/K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on', r);
+    this.hint = el('panel hint', 'WASD move · Mouse look · LMB/J light · RMB/K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on · 1–4 stratagems', r);
     setTimeout(() => (this.hint.style.opacity = '0'), 14000);
-    this.lastHp = player.hp;
+    this.setPlayer(player);
+  }
+
+  /** Point the nameplate at a different officer, when command passes to someone else. */
+  setPlayer(f: Fighter) {
+    (this.plate.querySelector('.name') as HTMLElement).textContent = f.def.name;
+    (this.plate.querySelector('.title') as HTMLElement).textContent = f.def.title;
+    this.lastHp = f.hp;
   }
 
   dispose() {
@@ -130,6 +156,15 @@ export class Hud {
 
   flash(a: number) {
     this.flashA = Math.max(this.flashA, a);
+  }
+
+  /** A stratagem card the player could not afford (or had nowhere to use) shakes. */
+  denied(i: number) {
+    const c = this.stratCards[i];
+    if (!c) return;
+    c.classList.remove('no');
+    void c.offsetWidth;
+    c.classList.add('no');
   }
 
   update(w: World, p: Fighter, target: Fighter | null, dt: number) {
@@ -182,6 +217,11 @@ export class Hud {
     this.moraleL.textContent = `${w.def.sides[0]} ${w.alive[0] + w.reserves[0]}`;
     this.moraleR.textContent = `${w.alive[1] + w.reserves[1]} ${w.def.sides[1]}`;
 
+    const cmd = w.command[p.team];
+    this.stratPips.forEach((pip, i) => ((pip.firstChild as HTMLElement).style.transform = `scaleY(${Math.max(0, Math.min(1, cmd - i))})`));
+    STRATS.forEach((d, i) => this.stratCards[i].classList.toggle('ready', cmd >= d.cost));
+    this.drumEl.classList.toggle('on', w.drumT[p.team] > 0);
+
     const ms = w.mission;
     this.missionEl.classList.toggle('on', !!ms);
     if (ms) {
@@ -196,6 +236,47 @@ export class Hud {
     }
   }
 
+  private reliefs = new Map<string, HTMLCanvasElement>();
+
+  /** Shaded relief of the ground, drawn once per map size: hills lit from the north-west, water in blue. */
+  private relief(w: World, N: number, flip: number): HTMLCanvasElement {
+    const key = `${N}:${flip}`;
+    let c = this.reliefs.get(key);
+    if (c) return c;
+    c = document.createElement('canvas');
+    c.width = c.height = N;
+    const g = c.getContext('2d')!;
+    const img = g.createImageData(N, N);
+    const T = w.terrain,
+      k = (w.half * 2) / N;
+    const n = { x: 0, y: 0, z: 0 };
+    for (let py = 0; py < N; py++)
+      for (let px = 0; px < N; px++) {
+        const x = (N / 2 - px) * k * flip,
+          z = (N / 2 - py) * k * flip;
+        const h = T.height(x, z);
+        T.normal(x, z, n);
+        const light = Math.max(0, 0.8 + (n.x * flip * 0.6 + n.z * flip * 0.6) * 2.2 + (n.y - 1) * 1.5);
+        const lift = Math.min(1, Math.max(0, (h + 2) / 16));
+        let r = (34 + lift * 40) * light,
+          gg = (44 + lift * 34) * light,
+          b = (28 + lift * 18) * light;
+        if (T.water !== null && h < T.water) {
+          r = 40;
+          gg = 70;
+          b = 96;
+        }
+        const o = (py * N + px) * 4;
+        img.data[o] = r;
+        img.data[o + 1] = gg;
+        img.data[o + 2] = b;
+        img.data[o + 3] = 255;
+      }
+    g.putImageData(img, 0, 0);
+    this.reliefs.set(key, c);
+    return c;
+  }
+
   /** Draw the battlefield. With `names` it is the large overview used on the pause screen. */
   drawMap(w: World, p: Fighter, g: CanvasRenderingContext2D = this.mctx, N = 220, names = false) {
     const k = N / (w.half * 2);
@@ -204,8 +285,7 @@ export class Hud {
     const X = (x: number) => N / 2 - x * k * flip,
       Y = (z: number) => N / 2 - z * k * flip;
     g.clearRect(0, 0, N, N);
-    g.fillStyle = '#2a3020';
-    g.fillRect(0, 0, N, N);
+    g.drawImage(this.relief(w, N, flip), 0, 0);
     for (const b of w.bases) {
       g.fillStyle = b.team < 0 ? '#8a8578' : hex(this.teamColors[b.team]);
       g.globalAlpha = 0.45;

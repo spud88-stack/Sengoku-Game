@@ -13,7 +13,7 @@ The `index.html` in the repo loads TypeScript source, which only works through V
 ## Modes
 
 - **Tutorial**: nine guided steps on the training ground, ending in a duel.
-- **Free Mode**: any of 14 officers in any of 7 historical battles, on either side, at four difficulties. Officers gain experience and levels.
+- **Free Mode**: any of 14 officers in any of 7 historical battles, on either side, at four difficulties. Officers gain experience and levels. Each field has its own lie of the land: Ueda Castle on its hill, the gorge at Okehazama, the river plain under Saijoyama at Kawanakajima, the Rengo stream at Nagashino, the Western Army's hill camps at Sekigahara, Osaka Castle on its plateau.
 - **Empire Mode**: a turn-based campaign over 31 provinces. Three starting eras (1560, 1570, 1582), any clan, or your own upstart lord. Develop provinces, levy troops, hire and suborn officers, make and break pacts, and fight every invasion yourself or leave it to your generals. Ends in unification or extinction, with an ending that reflects how you ruled.
 - **Training Ground**: one rival and a squad, no stakes.
 
@@ -32,16 +32,28 @@ The `index.html` in the repo loads TypeScript source, which only works through V
 | Shura (violet gauge full) | R | Either trigger |
 | Lock on to an officer | Tab / middle mouse | R3 |
 | Mount or dismount | E | L3 |
+| Stratagems | 1 – 4 | D-pad |
 | Battlefield map and pause | M / Esc | Start / Back |
 | Debug overlay | ` (backquote) | |
 
-Keys can be rebound under Settings. Menus work with mouse, arrow keys and Enter, or a gamepad.
+Keys can be rebound under Settings. Settings also has a Graphics level: High adds bloom and denser grass, Low drops resolution and soft shadows for slower machines. The game starts on High (Medium on phones and tablets) and steps down by itself if a battle can't keep a playable frame rate. Menus work with mouse, arrow keys and Enter, or a gamepad.
 
 ## How combat works
 
 Light attacks chain into a string. Pressing Heavy at any point in the string ends it with a different finisher: on its own it breaks guards, after one Light it launches, after two it is a flurry into a stun, after three it clears everything around you, after four it launches and slams. Jump after a launcher to keep the combo going in the air. Dodge cancels the end of most attacks. Filling the gold gauge buys an invulnerable Ougi; the violet gauge buys Shura, a short spell of extra speed and damage.
 
 Bases fall when their garrison is cut down and no defending officer is standing inside. A battle is won by defeating the enemy commander, taking their main camp, or routing their army.
+
+Stratagems cost command points (the diamonds under your bars). You start with one, earn more by holding the field, every 60 KOs, every officer defeated and every camp taken, and can bank up to five:
+
+- **Fire Arrows** (1): a volley of burning arrows lands on the ground just ahead of you.
+- **War Drums** (1): your whole army hits harder and holds firmer for 25 seconds.
+- **Reinforcements** (2): a fresh company runs from your nearest camp to fight at your side.
+- **Sabotage** (2): the nearest enemy camp is set alight; its garrison is halved and its defenders scatter.
+
+The enemy commander has them too. When a red circle appears around you, get out of it.
+
+If your officer falls in a field battle, command passes to another officer on your side: first an ally still standing, then (in Free Mode) one of two random officers who ride in from your nearest camp, and last of all your commander. The battle is lost when the commander falls. Settings can switch this off so that your officer's fall ends the battle.
 
 ## For developers
 

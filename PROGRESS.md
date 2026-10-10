@@ -8,9 +8,10 @@ Build brief: `PROMPT.md`. Player-facing notes: `README.md`. Node lives in `~/.lo
   - `fighter.ts` officer state machine shared by player and AI, including mounts.
   - `ai.ts` officer AI: strategic goals plus the duel layer.
   - `empire.ts` Empire Mode: economy, commands, diplomacy, AI clans, auto-resolve, and `engagementBattle` which turns an invasion into a `BattleDef`.
-- `src/view/` Three.js: `rig.ts`/`pose.ts`/`anims.ts` (procedural samurai, clips built from move timings), `crowd.ts` (instanced troops, horses, arrows), `fx.ts`, `scene.ts` (stage, sky themes, weather), `battleView.ts`, `portrait.ts`.
+  - `terrain.ts` the shape of each field (hills, rivers, ridges, raised camps), baked into a height grid shared by sim and view.
+- `src/view/` Three.js: `rig.ts`/`pose.ts`/`anims.ts` (procedural samurai, clips built from move timings), `crowd.ts` (instanced troops, horses, arrows), `fx.ts`, `scene.ts` (stage, terrain mesh, sky shader, weather), `grass.ts` (tiles of instanced grass around the player), `gfx.ts` (quality levels, bloom), `battleView.ts`, `portrait.ts`.
 - `src/ui/` DOM: `hud.ts`, `screens.ts` (all menus), `empireScreens.ts`, `tutorial.ts`.
-- `src/data/` tuning and content: `tuning.ts`, `moves.ts`, `officers.ts`, `battles.ts`, `empire.ts`.
+- `src/data/` tuning and content: `tuning.ts`, `moves.ts`, `officers.ts`, `battles.ts`, `empire.ts`, `stratagems.ts`.
 - `tools/` headless runners.
 
 ## Test hooks
@@ -26,7 +27,7 @@ Build brief: `PROMPT.md`. Player-facing notes: `README.md`. Node lives in `~/.lo
 - Empire Mode: 3 scenarios, custom lord, 31 provinces, development, levies, search/hire/reward/suborn, pacts and betrayal, stratagems that appear in battle, allied reinforcements, captives, auto-resolve, save/resume, four endings.
 
 ## Decisions worth knowing
-- Sim is 2D plus height. Terrain is flat; camps are open rings, so no pathfinding is needed.
+- Sim is 2D plus height, with y measured from the ground. `sim/terrain.ts` shapes the ground (hills, rivers, ridges, raised camps, per battle) and the view lifts everything onto it, so the hills change the look and not the balance. Camps are open rings on levelled ground, so no pathfinding is needed.
 - Tempo is tuned so an AI-only battle lasts 4 to 13 minutes: AI officers march at half speed, hurt each other at `npcDuelScale`, and a camp cannot fall while a defending officer stands in it. The player ignores all three limits, which is what makes them decisive.
 - Reinforcement waves are per army, not per camp, so holding more camps does not snowball troop numbers.
 - Own terms throughout (Ougi, Shura); officers are historical people with original designs.

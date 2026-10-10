@@ -102,6 +102,28 @@ export const TUNE = {
   troopVsNpc: 0.45,
   officerKillSlowmo: 0.9,
   blood: { max: 1400, decals: 700 },
+
+  /** battlefield stratagems, bought with command points */
+  strat: {
+    max: 5,
+    start: 1,
+    /** seconds to earn a point by simply holding the field */
+    regen: 55,
+    /** the player earns a point every this many KOs */
+    perKOs: 60,
+    fireDelay: 1.5,
+    fireRadius: 8,
+    /** how far ahead of the player the arrows land */
+    fireAhead: 9,
+    fireDmg: 60,
+    fireOfficerDmg: 26,
+    drumTime: 25,
+    drumDmg: 1.35,
+    drumGuard: 0.72,
+    reinforce: 14,
+    /** seconds an AI commander waits between thinking about a stratagem */
+    aiEvery: 4,
+  },
 };
 
 export interface Difficulty {
@@ -113,11 +135,13 @@ export interface Difficulty {
   enemyDmg: number;
   enemyHp: number;
   attackers: number;
+  /** chance, at each opportunity, that the enemy commander plays a stratagem */
+  stratagems: number;
 }
 
 export const DIFFICULTY: Record<string, Difficulty> = {
-  easy: { name: 'Novice', react: 0.42, aggression: 0.45, guardSkill: 0.25, enemyDmg: 0.7, enemyHp: 0.8, attackers: 2 },
-  normal: { name: 'Warrior', react: 0.28, aggression: 0.65, guardSkill: 0.5, enemyDmg: 1, enemyHp: 1, attackers: 3 },
-  hard: { name: 'Warlord', react: 0.18, aggression: 0.82, guardSkill: 0.72, enemyDmg: 1.35, enemyHp: 1.25, attackers: 4 },
-  chaos: { name: 'Demon King', react: 0.1, aggression: 0.95, guardSkill: 0.9, enemyDmg: 1.8, enemyHp: 1.6, attackers: 5 },
+  easy: { name: 'Novice', react: 0.42, aggression: 0.45, guardSkill: 0.25, enemyDmg: 0.7, enemyHp: 0.8, attackers: 2, stratagems: 0.12 },
+  normal: { name: 'Warrior', react: 0.28, aggression: 0.65, guardSkill: 0.5, enemyDmg: 1, enemyHp: 1, attackers: 3, stratagems: 0.25 },
+  hard: { name: 'Warlord', react: 0.18, aggression: 0.82, guardSkill: 0.72, enemyDmg: 1.35, enemyHp: 1.25, attackers: 4, stratagems: 0.4 },
+  chaos: { name: 'Demon King', react: 0.1, aggression: 0.95, guardSkill: 0.9, enemyDmg: 1.8, enemyHp: 1.6, attackers: 5, stratagems: 0.55 },
 };

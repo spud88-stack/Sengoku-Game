@@ -5,6 +5,7 @@ import { BATTLES, sideOf, type BattleSpec } from '../data/battles';
 import { movesetFor } from '../data/moves';
 import { CLANS, OFFICERS, ROSTER } from '../data/officers';
 import { DIFFICULTY } from '../data/tuning';
+import { defaultQuality, QUALITY, type Quality } from '../view/gfx';
 
 export interface BattleResult {
   won: boolean;
@@ -543,9 +544,11 @@ export class Shell {
           slider('Screen shake', 'shake', 0, 1.5),
           cycle('Blood', () => s.blood, [[1, 'Full'], [0.5, 'Reduced'], [0, 'Off']], (v) => (s.blood = v)),
           cycle('Invert camera Y', () => s.invertY, [[false, 'Off'], [true, 'On']], (v) => (s.invertY = v)),
+          cycle('Graphics', () => (s.quality in QUALITY ? s.quality : defaultQuality()), (Object.keys(QUALITY) as Quality[]).map((k) => [k, QUALITY[k].name] as [string, string]), (v) => (s.quality = v)),
+          cycle('When your officer falls', () => s.fightOn, [[true, 'Fight on as another'], [false, 'The battle is lost']], (v) => (s.fightOn = v)),
           cycle('Default difficulty', () => s.difficulty, Object.entries(DIFFICULTY).map(([k, v]) => [k, v.name] as [string, string]), (v) => (s.difficulty = v)),
         ),
-        h('p.keys', { html: '<b>Keyboard</b> WASD move · Mouse or arrows look · LMB / J light · RMB / K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on · E mount · M map · Esc pause<br><b>Gamepad</b> Stick move · X light · Y heavy · A jump · B Ougi · RB dodge · LB guard · Triggers Shura · R3 lock-on' }),
+        h('p.keys', { html: '<b>Keyboard</b> WASD move · Mouse or arrows look · LMB / J light · RMB / K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on · E mount · 1–4 stratagems · M map · Esc pause<br><b>Gamepad</b> Stick move · X light · Y heavy · A jump · B Ougi · RB dodge · LB guard · Triggers Shura · R3 lock-on · D-pad stratagems' }),
         h(
           'div.row2',
           {},
@@ -566,7 +569,7 @@ export class Shell {
 
   rebind(back: () => void) {
     const inp = this.host.input;
-    const names: [string, string][] = [['light', 'Light attack'], ['heavy', 'Heavy attack'], ['jump', 'Jump'], ['dodge', 'Dodge'], ['guard', 'Guard'], ['super', 'Ougi'], ['rage', 'Shura'], ['lock', 'Lock-on'], ['mount', 'Mount horse'], ['pause', 'Pause']];
+    const names: [string, string][] = [['light', 'Light attack'], ['heavy', 'Heavy attack'], ['jump', 'Jump'], ['dodge', 'Dodge'], ['guard', 'Guard'], ['super', 'Ougi'], ['rage', 'Shura'], ['lock', 'Lock-on'], ['mount', 'Mount horse'], ['map', 'Battlefield map'], ['strat1', 'Stratagem: Fire Arrows'], ['strat2', 'Stratagem: War Drums'], ['strat3', 'Stratagem: Reinforcements'], ['strat4', 'Stratagem: Sabotage'], ['pause', 'Pause']];
     const nice = (c: string) => c.replace('Key', '').replace('Mouse0', 'Left Mouse').replace('Mouse2', 'Right Mouse').replace('Mouse1', 'Middle Mouse').replace('ShiftLeft', 'Shift').replace('ShiftRight', 'Right Shift');
     const rows = names.map(([a, label]) => {
       const b = this.btn(`${label}: ${inp.keys[a as keyof typeof inp.keys].map(nice).join(' / ')}`, () => {

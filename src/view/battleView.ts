@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 import type { Audio } from '../core/audio';
-import type { Input } from '../core/input';
+import type { Action, Input } from '../core/input';
 import { angDiff, clamp, damp } from '../core/math';
 import { CLANS } from '../data/officers';
 import { TUNE } from '../data/tuning';
+import { STRATS } from '../data/stratagems';
 import type { Fighter } from '../sim/fighter';
 import type { World } from '../sim/world';
 import { Hud } from '../ui/hud';
 import { airPose, clipFor, dodgePose, ridePose, downPose, getupPose, guardPose, hitPose, idlePose, launchedPose, runPose, stunPose, warmClips } from './anims';
 import { Crowd, horseGeometry } from './crowd';
 import { Fx, Trail } from './fx';
+import { Grass } from './grass';
 import { Pose } from './pose';
 import { Rig } from './rig';
 import { buildStage, recolorBase, type Stage } from './scene';
@@ -28,6 +30,7 @@ interface RigView {
 }
 
 const KO_MILESTONES = [50, 100, 200, 300, 500, 750, 1000, 1500, 2000];
+const UP = new THREE.Vector3(0, 1, 0);
 
 function namePlate(text: string, color: number): THREE.Sprite {
   color = new THREE.Color(color).getHex();
@@ -58,6 +61,7 @@ export class BattleView {
   fx = new Fx();
   hud: Hud;
   rigs: RigView[] = [];
+  private grass: Grass | null = null;
   teamColors: number[];
   camYaw = 0;
   camPitch = 0.3;
@@ -78,6 +82,16 @@ export class BattleView {
   private lockRing: THREE.Mesh;
   private player: Fighter;
   onEnd: ((winner: number, reason: string) => void) | null = null;
+  /** draws the finished frame; the host can route it through post-processing */
+  present: ((scene: THREE.Scene, camera: THREE.Camera) => void) | null = null;
+  /** called when command passes to another officer, so the host can swap in its own controller */
+  onTakeover: ((f: Fighter) => void) | null = null;
+  private pendingTakeover: { f: Fighter; t: number } | null = null;
+  /** ground markers where fire arrows are about to land */
+  private warnings: { mesh: THREE.Mesh; t: number; max: number }[] = [];
+  /** patches of burning ground */
+  private burns: { x: number; z: number; r: number; t: number; max: number }[] = [];
+  private warnTex: THREE.Texture | null = null;
   simMs = 0;
 
   constructor(
@@ -86,7 +100,7 @@ export class BattleView {
     private input: Input,
     private audio: Audio,
     ui: HTMLElement,
-    public opts: { attract?: boolean; shake?: number; sens?: number; invertY?: boolean; blood?: number } = {},
+    public opts: { attract?: boolean; shake?: number; sens?: number; invertY?: boolean; blood?: number; shadowSize?: number; grass?: number } = {},
   ) {
     warmClips();
     const w = world;
@@ -96,12 +110,21 @@ export class BattleView {
     this.teamColors = clans.map((c) => c.color);
     // two armies in the same colours would be unplayable
     if (new THREE.Color(this.teamColors[0]).getHexString() === new THREE.Color(this.teamColors[1]).getHexString()) this.teamColors[1] = 0x8a8578;
-    this.stage = buildStage(w.def, this.teamColors, clans.map((c) => c.mon));
+    this.stage = buildStage(w.def, this.teamColors, clans.map((c) => c.mon), w.terrain, opts.shadowSize ?? 2048);
+    this.fx.ground = (x, z) => w.terrain.height(x, z);
+    this.fx.groundNormal = (x, z, out) => {
+      w.terrain.normal(x, z, out);
+      return out;
+    };
     const scene = this.stage.scene;
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.3, 1200);
     renderer.toneMappingExposure = scene.userData.exposure ?? 1.05;
     this.crowd = new Crowd(this.teamColors);
     scene.add(this.crowd.group, this.fx.group);
+    if (opts.grass) {
+      this.grass = new Grass(w.def, w.terrain, opts.grass, this.stage.groundTint);
+      scene.add(this.grass.mesh);
+    }
 
     for (const f of w.fighters) this.addRig(f);
 
@@ -179,6 +202,7 @@ export class BattleView {
   dispose() {
     this.hud.dispose();
     this.stage.dispose();
+    this.renderer.renderLists.dispose();
   }
 
   // ------------------------------------------------------------ player input → intent
@@ -198,6 +222,7 @@ export class BattleView {
     it.rage = inp.take('rage');
     it.guard = inp.down('guard');
     it.mount = inp.take('mount');
+    for (let i = 0; i < STRATS.length; i++) if (inp.take(`strat${i + 1}` as Action) && !this.world.useStratagem(f.team, STRATS[i].id, f)) this.hud.denied(i);
     if (inp.take('lock')) {
       if (f.lock) f.lock = null;
       else {
@@ -254,18 +279,117 @@ export class BattleView {
     this.time += sdt;
 
     this.handleEvents();
+    if (this.pendingTakeover && !this.paused && (this.pendingTakeover.t -= rawDt) <= 0) {
+      const nf = this.pendingTakeover.f;
+      this.pendingTakeover = null;
+      this.takeOver(nf);
+    }
     const vdt = frozen ? 0 : sdt;
     this.updateRigs(alpha, vdt);
     this.crowd.update(w, alpha, vdt);
     this.updateCamera(alpha, dt, rawDt);
+    this.updateStrikes(vdt);
     this.fx.update(vdt, this.camera);
     this.stage.weather(dt, this.camera.position);
+    this.grass?.update(dt, this.camTarget.x, this.camTarget.z);
     this.animateFlags();
 
     const p = this.player;
     this.hud.update(w, p, p.lock ?? this.nearestThreat(), dt);
     if (this.debugOn && !this.opts.attract) this.drawDebug();
-    this.renderer.render(this.stage.scene, this.camera);
+    if (this.present) this.present(this.stage.scene, this.camera);
+    else this.renderer.render(this.stage.scene, this.camera);
+  }
+
+  private gy(x: number, z: number) {
+    return this.world.terrain.height(x, z);
+  }
+
+  private nrm = new THREE.Vector3();
+  private qb = new THREE.Quaternion();
+  /** Lay a ground ring on the slope at (x, z), turned by `spin`. */
+  private layFlat(m: THREE.Object3D, x: number, z: number, spin: number) {
+    m.position.set(x, this.gy(x, z) + 0.08, z);
+    this.world.terrain.normal(x, z, this.nrm);
+    m.quaternion.setFromUnitVectors(UP, this.nrm).multiply(this.qb.setFromAxisAngle(UP, spin));
+  }
+
+  private addWarning(x: number, z: number, r: number, t: number, color: number) {
+    if (!this.warnTex) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const g = c.getContext('2d')!;
+      const grad = g.createRadialGradient(128, 128, 60, 128, 128, 126);
+      grad.addColorStop(0, 'rgba(255,255,255,0.05)');
+      grad.addColorStop(0.85, 'rgba(255,255,255,0.3)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 256, 256);
+      g.strokeStyle = '#fff';
+      g.lineWidth = 6;
+      g.beginPath();
+      g.arc(128, 128, 118, 0, 6.28);
+      g.stroke();
+      this.warnTex = new THREE.CanvasTexture(c);
+    }
+    const geo = new THREE.PlaneGeometry(2 * r, 2 * r, 16, 16);
+    geo.rotateX(-Math.PI / 2);
+    // drape it over the ground so the whole circle shows on a slope
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) pos.setY(i, this.gy(x + pos.getX(i), z + pos.getZ(i)) + 0.15);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: this.warnTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    mesh.position.set(x, 0, z);
+    mesh.renderOrder = 3;
+    this.stage.scene.add(mesh);
+    this.warnings.push({ mesh, t: t, max: t });
+  }
+
+  private updateStrikes(dt: number) {
+    for (let i = this.warnings.length - 1; i >= 0; i--) {
+      const wv = this.warnings[i];
+      wv.t -= dt;
+      const k = 1 - Math.max(0, wv.t) / wv.max;
+      (wv.mesh.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.65 * Math.abs(Math.sin(this.time * (6 + k * 14)));
+      const sc = 1.08 - k * 0.08;
+      wv.mesh.scale.set(sc, 1, sc);
+      if (wv.t <= 0) {
+        this.stage.scene.remove(wv.mesh);
+        wv.mesh.geometry.dispose();
+        (wv.mesh.material as THREE.Material).dispose();
+        this.warnings.splice(i, 1);
+      }
+    }
+    if (dt <= 0) return;
+    for (let i = this.burns.length - 1; i >= 0; i--) {
+      const b = this.burns[i];
+      if ((b.t -= dt) <= 0) {
+        this.burns.splice(i, 1);
+        continue;
+      }
+      this.fx.burn(b.x, b.z, b.r, b.t / b.max);
+    }
+  }
+
+  /** The player now controls `nf`. */
+  private takeOver(nf: Fighter) {
+    this.player = nf;
+    if (!this.opts.attract) nf.controller = (f) => this.playerControl(f);
+    this.onTakeover?.(nf);
+    const rv = this.rigs.find((x) => x.f === nf);
+    if (rv?.plate) {
+      this.stage.scene.remove(rv.plate);
+      rv.plate.material.map?.dispose();
+      rv.plate.material.dispose();
+      rv.plate = null;
+    }
+    for (const x of this.rigs) x.trail.color.set(this.trailColor(x.f));
+    this.hud.setPlayer(nf);
+    this.hud.showCallout('Command Passes', `${nf.def.name} fights on`);
+    this.hud.flash(0.5);
+    this.audio.taiko(1);
+    this.camYaw = nf.face;
+    this.camTarget.set(nf.x, 1.6 + nf.y, nf.z);
+    this.input.clear();
   }
 
   private nearestThreat(): Fighter | null {
@@ -481,12 +605,60 @@ export class BattleView {
           const f = rv.f;
           rv.rig.root.updateMatrixWorld(true);
           rv.rig.tip.getWorldPosition(this.tipV);
-          fx.flash(this.tipV.x, this.tipV.y, this.tipV.z, 2.6, 0xffc070, 0.09);
-          fx.sparks(this.tipV.x, this.tipV.y, this.tipV.z, 10, 0xffb060, 14);
-          fx.tracers(this.tipV.x, this.tipV.y, this.tipV.z, f.face, e.arc, e.range);
+          const ty = this.tipV.y - this.gy(this.tipV.x, this.tipV.z);
+          fx.flash(this.tipV.x, ty, this.tipV.z, 2.6, 0xffc070, 0.09);
+          fx.sparks(this.tipV.x, ty, this.tipV.z, 10, 0xffb060, 14);
+          fx.tracers(this.tipV.x, ty, this.tipV.z, f.face, e.arc, e.range);
           fx.dust(f.x, f.z, 3, 2, 0xb0b0b0);
           au.shot(clamp(1.2 - near(f.x, f.z) / 50, 0.15, 1));
           if (f.isPlayer) this.trauma = Math.min(1, this.trauma + 0.22);
+          break;
+        }
+        case 'stratagem': {
+          const def = STRATS.find((d) => d.id === e.id);
+          if (!def) break;
+          const mine = e.team === p.team;
+          this.hud.showCallout(`${def.kanji}`, mine ? def.name : `Enemy stratagem: ${def.name}`);
+          if (e.id === 'drums') {
+            for (let i = 0; i < 4; i++) au.taiko(i === 3 ? 1 : 0.75, i * 0.22);
+            for (const f of w.fighters) if (f.team === e.team && !f.dead && near(f.x, f.z) < 60) fx.ring(f.x, f.z, 8, this.teamColors[e.team], 0.6);
+          } else if (e.id === 'reinforce') {
+            au.chime(2);
+            au.taiko(0.8);
+            const camp = w.nearestBase(e.x, e.z, (b) => b.team === e.team);
+            if (camp) fx.dust(camp.x, camp.z, 30, 6);
+          } else if (e.id === 'fire') au.taiko(0.6);
+          break;
+        }
+        case 'strike': {
+          const mine = e.team === p.team;
+          if (e.phase === 'warn') {
+            this.addWarning(e.x, e.z, e.r, e.t, mine ? 0xffb347 : 0xff3a2a);
+            // the volley comes in over the caller's shoulder
+            const from = w.fighters.find((f) => f.team === e.team && !f.dead && Math.hypot(f.x - e.x, f.z - e.z) < 40);
+            fx.fireArrows(e.x, e.z, e.r, e.t, from?.x ?? e.x, from?.z ?? e.z - 20);
+            const d = near(e.x, e.z);
+            if (d < 70) for (let i = 0; i < 5; i++) au.arrow(clamp(0.9 - d / 80, 0.1, 0.8));
+          } else {
+            const blaze = e.phase === 'blaze';
+            fx.flash(e.x, 1.5, e.z, blaze ? 14 : 11, 0xffa040, 0.35, false);
+            fx.ring(e.x, e.z, e.r * 2.2, 0xff8a3a, 0.5);
+            fx.sparks(e.x, 1, e.z, 40, 0xffa040, 12);
+            fx.embers(e.x, 0.2, e.z, 60, 0xff7a2a, e.r);
+            fx.scorch(e.x, e.z, e.r * 0.9, blaze ? 16 : 10);
+            this.burns.push({ x: e.x, z: e.z, r: e.r * 0.85, t: blaze ? 9 : 4.5, max: blaze ? 9 : 4.5 });
+            const d = near(e.x, e.z);
+            if (d < 80) {
+              au.bigHit();
+              au.shot(clamp(1 - d / 80, 0.1, 0.9));
+            }
+          }
+          break;
+        }
+        case 'takeover': {
+          // linger on the fallen officer through the slow motion, then cut to whoever fights on
+          const nf = w.fighters.find((o) => o.id === e.to);
+          if (nf) this.pendingTakeover = { f: nf, t: 2.2 };
           break;
         }
         case 'end':
@@ -521,6 +693,7 @@ export class BattleView {
       const x = f.px + (f.x - f.px) * alpha,
         y = f.py + (f.y - f.py) * alpha,
         z = f.pz + (f.z - f.pz) * alpha;
+      const g = this.gy(x, z);
       if (f.mounted && !rv.horse) {
         rv.horse = new THREE.Mesh(BattleView.horseGeo ?? (BattleView.horseGeo = horseGeometry()), new THREE.MeshLambertMaterial({ color: 0x3a2a20, flatShading: true }));
         rv.horse.castShadow = true;
@@ -533,11 +706,11 @@ export class BattleView {
         if (riding) {
           const gallop = Math.min(1, Math.hypot(f.vx, f.vz) / 8);
           rv.phase += Math.hypot(f.vx, f.vz) * dt * 0.9;
-          rv.horse.position.set(x, y + Math.abs(Math.sin(rv.phase)) * 0.14 * gallop, z);
+          rv.horse.position.set(x, g + y + Math.abs(Math.sin(rv.phase)) * 0.14 * gallop, z);
           rv.horse.rotation.set(Math.sin(rv.phase * 2) * 0.05 * gallop, f.face, 0, 'YXZ');
         }
       }
-      rig.root.position.set(x, y + (riding ? 0.86 + Math.abs(Math.sin(rv.phase)) * 0.14 * Math.min(1, Math.hypot(f.vx, f.vz) / 8) : 0), z);
+      rig.root.position.set(x, g + y + (riding ? 0.86 + Math.abs(Math.sin(rv.phase)) * 0.14 * Math.min(1, Math.hypot(f.vx, f.vz) / 8) : 0), z);
       rig.root.rotation.y = f.face;
 
       const wk = f.def.weapon;
@@ -640,7 +813,7 @@ export class BattleView {
       if (rv.plate) {
         const d = Math.hypot(x - p.x, z - p.z);
         rv.plate.visible = d < 70 && f.state !== 'dead';
-        rv.plate.position.set(x, y + 2.75 * f.scale, z);
+        rv.plate.position.set(x, g + y + 2.75 * f.scale, z);
         const s = clamp(d / 14, 0.8, 3.2);
         rv.plate.scale.set(3.4 * s * 0.5, 0.64 * s * 0.5, 1);
       }
@@ -656,18 +829,16 @@ export class BattleView {
       const it = items[i];
       m.visible = !!it;
       if (!it) return;
-      m.position.set(it.x, 0.7 + Math.sin(this.time * 3 + i) * 0.15, it.z);
+      m.position.set(it.x, this.gy(it.x, it.z) + 0.7 + Math.sin(this.time * 3 + i) * 0.15, it.z);
       m.rotation.y = this.time * 2;
       (m.material as THREE.MeshBasicMaterial).color.set(it.kind === 'heal' ? 0x7be08a : 0xf6dc7a);
       if (dt > 0 && Math.random() < 0.15) this.fx.embers(it.x, 0.2, it.z, 1, it.kind === 'heal' ? 0x7be08a : 0xf6dc7a, 0.3);
     });
-    this.selfRing.position.set(p.px + (p.x - p.px) * alpha, 0.06, p.pz + (p.z - p.pz) * alpha);
-    this.selfRing.rotation.y = this.time * 0.8;
+    this.layFlat(this.selfRing, p.px + (p.x - p.px) * alpha, p.pz + (p.z - p.pz) * alpha, this.time * 0.8);
     const lk = p.lock;
     this.lockRing.visible = !!lk && !lk.dead;
     if (lk) {
-      this.lockRing.position.set(lk.x, 0.07, lk.z);
-      this.lockRing.rotation.y = -this.time * 2;
+      this.layFlat(this.lockRing, lk.x, lk.z, -this.time * 2);
       this.lockRing.scale.setScalar(2.6 + Math.sin(this.time * 6) * 0.2);
     }
   }
@@ -737,11 +908,14 @@ export class BattleView {
     const follow = 1 - Math.exp(-14 * rawDt);
     this.camTarget.x += (tx - this.camTarget.x) * follow;
     this.camTarget.z += (tz - this.camTarget.z) * follow;
-    this.camTarget.y += (1.55 + py * 0.7 - this.camTarget.y) * (1 - Math.exp(-8 * rawDt));
+    this.camTarget.y += (this.gy(px, pz) + 1.55 + py * 0.7 - this.camTarget.y) * (1 - Math.exp(-8 * rawDt));
 
     const cp = Math.cos(this.camPitch),
       sp = Math.sin(this.camPitch);
-    this.camPos.set(this.camTarget.x - Math.sin(this.camYaw) * cp * this.camDist, Math.max(0.5, this.camTarget.y + sp * this.camDist), this.camTarget.z - Math.cos(this.camYaw) * cp * this.camDist);
+    const cx = this.camTarget.x - Math.sin(this.camYaw) * cp * this.camDist,
+      cz = this.camTarget.z - Math.cos(this.camYaw) * cp * this.camDist;
+    // never let a hillside come between the camera and the player
+    this.camPos.set(cx, Math.max(this.gy(cx, cz) + 0.8, this.gy((cx + px) / 2, (cz + pz) / 2) + 1.2, this.camTarget.y + sp * this.camDist), cz);
 
     // trauma-squared shake reads as impact rather than wobble
     this.trauma = Math.max(0, this.trauma - rawDt * 1.9);
@@ -761,8 +935,10 @@ export class BattleView {
     }
 
     const sun = this.stage.sun;
-    sun.position.set(px + 40, 70, pz + 25);
-    sun.target.position.set(px, 0, pz);
+    const sg = this.gy(px, pz),
+      sd = this.stage.sunDir;
+    sun.position.set(px + sd.x * 85, sg + sd.y * 85, pz + sd.z * 85);
+    sun.target.position.set(px, sg, pz);
     void dt;
   }
 
