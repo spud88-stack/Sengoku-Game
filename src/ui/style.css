@@ -99,6 +99,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0a09; col
 .vignette.hurt { background: radial-gradient(ellipse at center, #0000 55%, #b3261ecc 100%); }
 .vignette.superfx { background: radial-gradient(ellipse at center, #0000 30%, #000c 100%); }
 .vignette.ragefx { background: radial-gradient(ellipse at center, #0000 60%, #5b2bd199 100%); }
+/* a faint lens darkening at the corners, always on */
+.vignette.cine { opacity: 1; background: radial-gradient(ellipse 75% 70% at center, #0000 62%, #0000002e 85%, #00000066 100%); }
 .flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
 
 .debug { left: 22px; top: 150px; font: 12px/1.45 ui-monospace, Menlo, monospace; background: #000a; padding: 8px 10px; white-space: pre; display: none; }

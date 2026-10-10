@@ -46,7 +46,7 @@ The `index.html` in the repo loads TypeScript source, which only works through V
 | Battlefield map and pause | M / Esc | Start / Back |
 | Debug overlay | ` (backquote) | |
 
-Keys can be rebound under Settings. Menus work with mouse, arrow keys and Enter, or a gamepad.
+Keys can be rebound under Settings. Settings also has a Graphics level: High adds bloom and denser grass, Low drops resolution and soft shadows for slower machines. The game starts on High (Medium on phones and tablets) and steps down by itself if a battle can't keep a playable frame rate. Menus work with mouse, arrow keys and Enter, or a gamepad.
 
 ## How combat works
 

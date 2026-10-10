@@ -11,16 +11,16 @@ import { Shell, type BattleResult } from './ui/screens';
 import { Tutorial } from './ui/tutorial';
 import { BattleView } from './view/battleView';
 import { renderPortraits } from './view/portrait';
+import { defaultQuality, Presenter, QUALITY, type Quality } from './view/gfx';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ui = document.getElementById('ui') as HTMLElement;
 const params = new URLSearchParams(location.search);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const presenter = new Presenter(renderer);
 // If the GPU drops the context (driver reset, memory pressure), let the browser hand it back instead of leaving a frozen frame.
 canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
 
@@ -38,10 +38,14 @@ let inBattle = false;
 let battleOfficer = 'yukimura';
 let onQuit: (() => void) | null = null;
 
-const viewOpts = () => ({ shake: profile.settings.shake, sens: profile.settings.sens, invertY: profile.settings.invertY, blood: profile.settings.blood });
+const quality = (): Quality => ((profile.settings.quality in QUALITY ? profile.settings.quality : defaultQuality()) as Quality);
+const gfxOpts = () => ({ shadowSize: QUALITY[quality()].shadowSize, grass: QUALITY[quality()].grass });
+const viewOpts = () => ({ shake: profile.settings.shake, sens: profile.settings.sens, invertY: profile.settings.invertY, blood: profile.settings.blood, ...gfxOpts() });
 
+let gfxSet = '';
 function applySettings() {
   const s = profile.settings;
+  if (gfxSet !== quality()) presenter.setQuality((gfxSet = quality()));
   Object.assign(audio.vol, { master: s.master, sfx: s.sfx, music: s.music });
   audio.applyVolume();
   if (view) {
@@ -62,6 +66,8 @@ function transition(fn: () => void) {
 function setView(v: BattleView) {
   view?.dispose();
   view = v;
+  v.present = (scene, cam) => presenter.render(scene, cam);
+  slow.t = slow.frames = 0;
   (window as any).__game = { world: v.world, view: v, input, audio, advance, shell, setManual: (m: boolean) => (manual = m) };
 }
 
@@ -78,7 +84,7 @@ function attract() {
   inBattle = false;
   input.enabled = false;
   document.exitPointerLock?.();
-  setView(new BattleView(renderer, world, input, audio, ui, { attract: true }));
+  setView(new BattleView(renderer, world, input, audio, ui, { attract: true, ...gfxOpts() }));
 }
 
 /** Play a battle and report how it went. */
@@ -95,6 +101,7 @@ function runBattle(def: BattleDef, difficulty: string, officerId: string, done: 
   const v = new BattleView(renderer, world, input, audio, ui, viewOpts());
   if (params.get('auto') === '1') v.onTakeover = (f) => (f.controller = officerAI);
   setView(v);
+  slow.warm = 0;
   inBattle = true;
   battleOfficer = officerId;
   input.enabled = true;
@@ -212,8 +219,30 @@ function advance(seconds: number, until?: () => boolean, dt = 1 / 60): number {
 
 let tutorial: Tutorial | null = null;
 
+/** If a battle can't hold a playable frame rate, step the graphics down a level rather than let it crawl. */
+const slow = { t: 0, frames: 0, warm: 0 };
+function watchFrameRate(dt: number) {
+  // a gap of seconds is a tab coming back from the background, not a slow frame
+  if (!view || !inBattle || view.paused || manual || dt > 3) return;
+  // the first seconds of a battle are spent compiling shaders
+  if ((slow.warm += dt) < 4) return;
+  slow.t += dt;
+  slow.frames++;
+  if (slow.t < 8) return;
+  const fps = slow.frames / slow.t;
+  slow.t = slow.frames = 0;
+  const q = quality();
+  if (fps >= 26 || q === 'low') return;
+  const next: Quality = q === 'high' ? 'medium' : 'low';
+  profile.settings.quality = next;
+  saveProfile();
+  presenter.setQuality((gfxSet = next));
+  view.hud.addLog(`The battle was running slowly, so graphics are now ${QUALITY[next].name}. Change this under Settings.`, 'info');
+}
+
 function frame(dt: number) {
   if (!view) return;
+  watchFrameRate(dt);
   if (inBattle && (input.take('pause') || (input.take('map') && !view.paused))) togglePause();
   view.frame(dt);
   if (tutorial && inBattle && !view.paused) tutorial.update(dt);
@@ -223,7 +252,10 @@ function frame(dt: number) {
   audio.intensity += (target - audio.intensity) * Math.min(1, dt * 0.8);
 }
 
-window.addEventListener('resize', () => view?.resize());
+window.addEventListener('resize', () => {
+  presenter.resize();
+  view?.resize();
+});
 // losing pointer lock mid-fight (Esc, alt-tab) should pause rather than leave the player spinning
 document.addEventListener('pointerlockchange', () => {
   if (!document.pointerLockElement && inBattle && view && !view.paused && !view.world.ended && !manual) togglePause();

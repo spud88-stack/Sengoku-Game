@@ -8,9 +8,10 @@ Build brief: `PROMPT.md`. Player-facing notes: `README.md`. Node lives in `~/.lo
   - `fighter.ts` officer state machine shared by player and AI, including mounts.
   - `ai.ts` officer AI: strategic goals plus the duel layer.
   - `empire.ts` Empire Mode: economy, commands, diplomacy, AI clans, auto-resolve, and `engagementBattle` which turns an invasion into a `BattleDef`.
-- `src/view/` Three.js: `rig.ts`/`pose.ts`/`anims.ts` (procedural samurai, clips built from move timings), `crowd.ts` (instanced troops, horses, arrows), `fx.ts`, `scene.ts` (stage, sky themes, weather), `battleView.ts`, `portrait.ts`.
+  - `terrain.ts` the shape of each field (hills, rivers, ridges, raised camps), baked into a height grid shared by sim and view.
+- `src/view/` Three.js: `rig.ts`/`pose.ts`/`anims.ts` (procedural samurai, clips built from move timings), `crowd.ts` (instanced troops, horses, arrows), `fx.ts`, `scene.ts` (stage, terrain mesh, sky shader, weather), `grass.ts` (tiles of instanced grass around the player), `gfx.ts` (quality levels, bloom), `battleView.ts`, `portrait.ts`.
 - `src/ui/` DOM: `hud.ts`, `screens.ts` (all menus), `empireScreens.ts`, `tutorial.ts`.
-- `src/data/` tuning and content: `tuning.ts`, `moves.ts`, `officers.ts`, `battles.ts`, `empire.ts`.
+- `src/data/` tuning and content: `tuning.ts`, `moves.ts`, `officers.ts`, `battles.ts`, `empire.ts`, `stratagems.ts`.
 - `tools/` headless runners.
 
 ## Test hooks

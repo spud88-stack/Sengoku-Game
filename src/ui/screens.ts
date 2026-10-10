@@ -5,6 +5,7 @@ import { BATTLES, sideOf, type BattleSpec } from '../data/battles';
 import { movesetFor } from '../data/moves';
 import { CLANS, OFFICERS, ROSTER } from '../data/officers';
 import { DIFFICULTY } from '../data/tuning';
+import { defaultQuality, QUALITY, type Quality } from '../view/gfx';
 
 export interface BattleResult {
   won: boolean;
@@ -543,6 +544,7 @@ export class Shell {
           slider('Screen shake', 'shake', 0, 1.5),
           cycle('Blood', () => s.blood, [[1, 'Full'], [0.5, 'Reduced'], [0, 'Off']], (v) => (s.blood = v)),
           cycle('Invert camera Y', () => s.invertY, [[false, 'Off'], [true, 'On']], (v) => (s.invertY = v)),
+          cycle('Graphics', () => (s.quality in QUALITY ? s.quality : defaultQuality()), (Object.keys(QUALITY) as Quality[]).map((k) => [k, QUALITY[k].name] as [string, string]), (v) => (s.quality = v)),
           cycle('When your officer falls', () => s.fightOn, [[true, 'Fight on as another'], [false, 'The battle is lost']], (v) => (s.fightOn = v)),
           cycle('Default difficulty', () => s.difficulty, Object.entries(DIFFICULTY).map(([k, v]) => [k, v.name] as [string, string]), (v) => (s.difficulty = v)),
         ),

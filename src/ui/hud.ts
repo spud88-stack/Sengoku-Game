@@ -57,6 +57,7 @@ export class Hud {
 
   constructor(parent: HTMLElement, private teamColors: number[], player: Fighter, sides: string[]) {
     const r = (this.root = el('hud', '', parent));
+    el('vignette cine', '', r);
     this.hurt = el('vignette hurt', '', r);
     this.superFx = el('vignette superfx', '', r);
     this.rageFx = el('vignette ragefx', '', r);

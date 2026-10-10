@@ -11,6 +11,7 @@ import { Hud } from '../ui/hud';
 import { airPose, clipFor, dodgePose, ridePose, downPose, getupPose, guardPose, hitPose, idlePose, launchedPose, runPose, stunPose, warmClips } from './anims';
 import { Crowd, horseGeometry } from './crowd';
 import { Fx, Trail } from './fx';
+import { Grass } from './grass';
 import { Pose } from './pose';
 import { Rig } from './rig';
 import { buildStage, recolorBase, type Stage } from './scene';
@@ -60,6 +61,7 @@ export class BattleView {
   fx = new Fx();
   hud: Hud;
   rigs: RigView[] = [];
+  private grass: Grass | null = null;
   teamColors: number[];
   camYaw = 0;
   camPitch = 0.3;
@@ -80,6 +82,8 @@ export class BattleView {
   private lockRing: THREE.Mesh;
   private player: Fighter;
   onEnd: ((winner: number, reason: string) => void) | null = null;
+  /** draws the finished frame; the host can route it through post-processing */
+  present: ((scene: THREE.Scene, camera: THREE.Camera) => void) | null = null;
   /** called when command passes to another officer, so the host can swap in its own controller */
   onTakeover: ((f: Fighter) => void) | null = null;
   private pendingTakeover: { f: Fighter; t: number } | null = null;
@@ -96,7 +100,7 @@ export class BattleView {
     private input: Input,
     private audio: Audio,
     ui: HTMLElement,
-    public opts: { attract?: boolean; shake?: number; sens?: number; invertY?: boolean; blood?: number } = {},
+    public opts: { attract?: boolean; shake?: number; sens?: number; invertY?: boolean; blood?: number; shadowSize?: number; grass?: number } = {},
   ) {
     warmClips();
     const w = world;
@@ -106,7 +110,7 @@ export class BattleView {
     this.teamColors = clans.map((c) => c.color);
     // two armies in the same colours would be unplayable
     if (new THREE.Color(this.teamColors[0]).getHexString() === new THREE.Color(this.teamColors[1]).getHexString()) this.teamColors[1] = 0x8a8578;
-    this.stage = buildStage(w.def, this.teamColors, clans.map((c) => c.mon), w.terrain);
+    this.stage = buildStage(w.def, this.teamColors, clans.map((c) => c.mon), w.terrain, opts.shadowSize ?? 2048);
     this.fx.ground = (x, z) => w.terrain.height(x, z);
     this.fx.groundNormal = (x, z, out) => {
       w.terrain.normal(x, z, out);
@@ -117,6 +121,10 @@ export class BattleView {
     renderer.toneMappingExposure = scene.userData.exposure ?? 1.05;
     this.crowd = new Crowd(this.teamColors);
     scene.add(this.crowd.group, this.fx.group);
+    if (opts.grass) {
+      this.grass = new Grass(w.def, w.terrain, opts.grass, this.stage.groundTint);
+      scene.add(this.grass.mesh);
+    }
 
     for (const f of w.fighters) this.addRig(f);
 
@@ -283,12 +291,14 @@ export class BattleView {
     this.updateStrikes(vdt);
     this.fx.update(vdt, this.camera);
     this.stage.weather(dt, this.camera.position);
+    this.grass?.update(dt, this.camTarget.x, this.camTarget.z);
     this.animateFlags();
 
     const p = this.player;
     this.hud.update(w, p, p.lock ?? this.nearestThreat(), dt);
     if (this.debugOn && !this.opts.attract) this.drawDebug();
-    this.renderer.render(this.stage.scene, this.camera);
+    if (this.present) this.present(this.stage.scene, this.camera);
+    else this.renderer.render(this.stage.scene, this.camera);
   }
 
   private gy(x: number, z: number) {
@@ -925,8 +935,9 @@ export class BattleView {
     }
 
     const sun = this.stage.sun;
-    const sg = this.gy(px, pz);
-    sun.position.set(px + 40, sg + 70, pz + 25);
+    const sg = this.gy(px, pz),
+      sd = this.stage.sunDir;
+    sun.position.set(px + sd.x * 85, sg + sd.y * 85, pz + sd.z * 85);
     sun.target.position.set(px, sg, pz);
     void dt;
   }

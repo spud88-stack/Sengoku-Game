@@ -312,7 +312,8 @@ export class Fx {
     const flat = new THREE.PlaneGeometry(1, 1);
     flat.rotateX(-Math.PI / 2);
     for (let i = 0; i < 4; i++) {
-      const mat = new THREE.MeshBasicMaterial({ map: splatTexture(i + 3), color: 0xffffff, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+      // lit, so stains darken at night and in shadow like the ground they're on
+      const mat = new THREE.MeshLambertMaterial({ map: splatTexture(i + 3), color: 0xffffff, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
       mat.alphaMap = mat.map;
       mat.map = null;
       const im = new THREE.InstancedMesh(flat, mat, this.decalCap);

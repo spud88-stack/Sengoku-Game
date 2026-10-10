@@ -11,6 +11,8 @@ export interface Settings {
   music: number;
   /** when your officer falls in a field battle, carry on as another */
   fightOn: boolean;
+  /** 'low' | 'medium' | 'high', or '' to pick for this device */
+  quality: string;
 }
 
 export interface OfficerRecord {
@@ -35,7 +37,7 @@ const KEY = 'sengoku-warriors.profile';
 
 const fresh = (): Profile => ({
   version: 1,
-  settings: { difficulty: 'normal', blood: 1, shake: 1, sens: 1, invertY: false, master: 0.8, sfx: 0.9, music: 0.55, fightOn: true },
+  settings: { difficulty: 'normal', blood: 1, shake: 1, sens: 1, invertY: false, master: 0.8, sfx: 0.9, music: 0.55, fightOn: true, quality: '' },
   officers: {},
   battlesWon: [],
   totalKos: 0,

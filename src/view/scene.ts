@@ -6,6 +6,10 @@ import type { Terrain } from '../sim/terrain';
 export interface Stage {
   scene: THREE.Scene;
   sun: THREE.DirectionalLight;
+  /** unit vector toward the sun (or moon); the light follows the player along it */
+  sunDir: THREE.Vector3;
+  /** how this sky tints the ground, for things laid on it */
+  groundTint: number;
   /** per-base banner meshes so captures can recolour them */
   baseFlags: THREE.Mesh[][];
   /** advance rain or snow around the camera */
@@ -13,13 +17,62 @@ export interface Stage {
   dispose(): void;
 }
 
-const SKIES: Record<string, { top: number; hor: number; sun: number; sunI: number; hemiSky: number; hemiGround: number; hemiI: number; fog: [number, number]; ground: number; exposure: number }> = {
-  day: { top: 0x6f8fb0, hor: 0xd9c9a8, sun: 0xfff0d2, sunI: 2.1, hemiSky: 0xcfe0ff, hemiGround: 0x6b5a3a, hemiI: 0.95, fog: [70, 300], ground: 0xffffff, exposure: 1.05 },
-  dusk: { top: 0x4a4a80, hor: 0xf0a060, sun: 0xffa860, sunI: 2.2, hemiSky: 0xffc8a0, hemiGround: 0x5a4030, hemiI: 0.8, fog: [60, 280], ground: 0xffd8b8, exposure: 1.05 },
-  night: { top: 0x070b1c, hor: 0x27324f, sun: 0x9db8ff, sunI: 1.15, hemiSky: 0x6f86c8, hemiGround: 0x20202c, hemiI: 0.85, fog: [40, 190], ground: 0x8f9cc0, exposure: 1.15 },
-  rain: { top: 0x47525c, hor: 0x8e989c, sun: 0xd4dde6, sunI: 1.2, hemiSky: 0xc0ccd8, hemiGround: 0x4a4a40, hemiI: 1.0, fog: [35, 200], ground: 0xb8c0b8, exposure: 1.0 },
-  snow: { top: 0x8a98a8, hor: 0xdfe6ea, sun: 0xffffff, sunI: 1.5, hemiSky: 0xe8f0ff, hemiGround: 0x8a8a90, hemiI: 1.1, fog: [40, 220], ground: 0xf4f6ff, exposure: 1.0 },
+type SkyDef = { top: number; hor: number; sun: number; sunI: number; hemiSky: number; hemiGround: number; hemiI: number; fog: [number, number]; ground: number; exposure: number; dir: [number, number, number]; clouds: number; disc: number; stars: number };
+const SKIES: Record<string, SkyDef> = {
+  day: { top: 0x6f8fb0, hor: 0xd9c9a8, sun: 0xfff0d2, sunI: 2.1, hemiSky: 0xcfe0ff, hemiGround: 0x6b5a3a, hemiI: 0.95, fog: [70, 300], ground: 0xffffff, exposure: 1.05, dir: [0.45, 0.72, 0.53], clouds: 0.55, disc: 1, stars: 0 },
+  // the sun going down behind the enemy lines
+  dusk: { top: 0x4a4a80, hor: 0xf0a060, sun: 0xffa860, sunI: 2.2, hemiSky: 0xffc8a0, hemiGround: 0x5a4030, hemiI: 0.8, fog: [60, 280], ground: 0xffd8b8, exposure: 1.05, dir: [0.3, 0.3, 0.9], clouds: 0.5, disc: 1.2, stars: 0.15 },
+  night: { top: 0x070b1c, hor: 0x27324f, sun: 0x9db8ff, sunI: 1.15, hemiSky: 0x6f86c8, hemiGround: 0x20202c, hemiI: 0.85, fog: [40, 190], ground: 0x8f9cc0, exposure: 1.15, dir: [-0.35, 0.6, 0.72], clouds: 0.3, disc: 0.35, stars: 1 },
+  rain: { top: 0x47525c, hor: 0x8e989c, sun: 0xd4dde6, sunI: 1.2, hemiSky: 0xc0ccd8, hemiGround: 0x4a4a40, hemiI: 1.0, fog: [35, 200], ground: 0xb8c0b8, exposure: 1.0, dir: [0.4, 0.75, 0.5], clouds: 1, disc: 0, stars: 0 },
+  snow: { top: 0x8a98a8, hor: 0xdfe6ea, sun: 0xffffff, sunI: 1.5, hemiSky: 0xe8f0ff, hemiGround: 0x8a8a90, hemiI: 1.1, fog: [40, 220], ground: 0xf4f6ff, exposure: 1.0, dir: [0.4, 0.7, 0.55], clouds: 0.9, disc: 0.15, stars: 0 },
 };
+
+const SKY_VERT = `varying vec3 vDir;
+void main() {
+  vDir = position;
+  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = p.xyww;
+}`;
+// a painted gradient with a sun (or moon), drifting clouds and, at night, stars
+const SKY_FRAG = `uniform vec3 top; uniform vec3 hor; uniform vec3 sunCol; uniform vec3 sunDir;
+uniform float time; uniform float clouds; uniform float disc; uniform float stars;
+varying vec3 vDir;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float fbm(vec2 p) {
+  float s = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++) { s += noise(p) * a; p = p * 2.03 + 17.0; a *= 0.5; }
+  return s;
+}
+void main() {
+  vec3 d = normalize(vDir);
+  float h = clamp(d.y * 2.2, 0.0, 1.0);
+  vec3 col = mix(hor, top, pow(h, 0.7));
+  float s = max(dot(d, normalize(sunDir)), 0.0);
+  // a wide glow, a tighter halo and the disc itself
+  col += sunCol * (pow(s, 6.0) * 0.18 + pow(s, 48.0) * 0.35) * disc;
+  col = mix(col, sunCol * 1.6, smoothstep(0.9993, 0.9997, s) * min(disc, 1.0));
+  if (d.y > 0.0) {
+    vec2 uv = d.xz / (d.y + 0.12) * 0.9 + vec2(time * 0.006, time * 0.002);
+    float c = smoothstep(0.62 - clouds * 0.32, 0.92 - clouds * 0.12, fbm(uv * 1.7));
+    // clouds are lit from the sun's side and fade into the haze at the horizon
+    vec3 cc = mix(hor * 0.85, mix(vec3(1.0), sunCol, 0.35), 0.35 + 0.65 * pow(s, 3.0));
+    cc = mix(cc, top * 0.6 + hor * 0.3, clouds * 0.45);
+    col = mix(col, cc, c * smoothstep(0.0, 0.22, d.y) * (0.55 + clouds * 0.4));
+    if (stars > 0.0) {
+      vec2 g = floor(d.xz / (d.y + 0.35) * 260.0);
+      float st = step(0.9965, hash(g)) * (0.6 + 0.4 * sin(time * 2.0 + hash(g + 3.0) * 40.0));
+      col += vec3(st) * stars * smoothstep(0.08, 0.4, d.y) * (1.0 - c);
+    }
+  }
+  gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
 
 function groundTexture(def: BattleDef, rng: Rng): THREE.CanvasTexture {
   const N = 2048;
@@ -146,7 +199,7 @@ function groundMesh(def: BattleDef, terrain: Terrain, tex: THREE.Texture, tint: 
   return m;
 }
 
-export function buildStage(def: BattleDef, teamColors: number[], teamMons: string[], terrain: Terrain): Stage {
+export function buildStage(def: BattleDef, teamColors: number[], teamMons: string[], terrain: Terrain, shadowSize = 2048): Stage {
   const gy = (x: number, z: number) => terrain.height(x, z);
   const rng = new Rng(77);
   const scene = new THREE.Scene();
@@ -157,25 +210,28 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
   scene.fog = new THREE.Fog(horizon, sk.fog[0], sk.fog[1]);
   scene.userData.exposure = sk.exposure;
 
-  // sky dome with a painted gradient
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(900, 24, 12),
-    new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      depthWrite: false,
-      fog: false,
-      uniforms: { top: { value: skyTop }, hor: { value: horizon } },
-      vertexShader: 'varying vec3 p; void main(){ p = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: 'varying vec3 p; uniform vec3 top; uniform vec3 hor; void main(){ float h = clamp(normalize(p).y*2.2, 0.0, 1.0); gl_FragColor = vec4(mix(hor, top, pow(h,0.7)), 1.0); }',
-    }),
-  );
+  // sky dome, drawn at infinity behind everything
+  const sunDir = new THREE.Vector3(...sk.dir).normalize();
+  const skyUniforms = {
+    top: { value: skyTop },
+    hor: { value: horizon },
+    sunCol: { value: new THREE.Color(sk.sun) },
+    sunDir: { value: sunDir },
+    time: { value: 0 },
+    clouds: { value: sk.clouds },
+    disc: { value: sk.disc },
+    stars: { value: sk.stars },
+  };
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyUniforms, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG }));
+  sky.frustumCulled = false;
+  sky.renderOrder = -1;
   scene.add(sky);
 
   scene.add(new THREE.HemisphereLight(sk.hemiSky, sk.hemiGround, sk.hemiI));
   const sun = new THREE.DirectionalLight(sk.sun, sk.sunI);
   sun.position.set(40, 70, 25);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(shadowSize, shadowSize);
   const sc = sun.shadow.camera;
   sc.left = sc.bottom = -42;
   sc.right = sc.top = 42;
@@ -401,8 +457,13 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
   const stage: Stage = {
     scene,
     sun,
+    sunDir,
+    groundTint: sk.ground,
     baseFlags,
     weather(dt, cam) {
+      skyUniforms.time.value += dt;
+      // the dome travels with the camera so the sun and clouds stay put on the horizon
+      sky.position.copy(cam);
       if (!weatherMesh) return;
       const snow = def.sky === 'snow';
       const fall = snow ? 2.2 : 26,
