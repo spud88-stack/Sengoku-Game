@@ -134,6 +134,81 @@ export function buildWeapon(kind: WeaponKind, accent: number): WeaponInfo {
       g.add(bayonet);
       return { group: g, tip: 1.5, base: 0.5, twoHanded: true };
     }
+    case 'kusarigama': {
+      // the sickle in hand, its chain run out taut to the weight
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.026, 0.42, 6), wood);
+      handle.position.y = -0.02;
+      g.add(handle);
+      const blade = box(0.012, 0.36, 0.06, steel, 0, -0.26, 0.17);
+      blade.rotation.x = Math.PI / 2;
+      g.add(blade);
+      const tipM = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4), steel);
+      tipM.rotation.x = -Math.PI / 2;
+      tipM.scale.x = 0.3;
+      tipM.position.set(0, -0.26, 0.4);
+      g.add(tipM);
+      const chainMat = mat(0x6a6e74, { metal: 0.8, rough: 0.4 });
+      for (let i = 0; i < 16; i++) {
+        const link = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.009, 3, 6), chainMat);
+        link.position.y = -0.2 - i * 0.14;
+        link.rotation.y = (i % 2) * (Math.PI / 2);
+        g.add(link);
+      }
+      const weight = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), mat(0x2a2a30, { metal: 0.7, rough: 0.4 }));
+      weight.position.y = -2.5;
+      weight.castShadow = true;
+      g.add(weight);
+      return { group: g, tip: 2.55, base: 1.4, twoHanded: false };
+    }
+    case 'tessen': {
+      // an open iron fan: ribs fanned out above the grip, a painted leaf over them
+      g.add(box(0.03, 0.2, 0.03, mat(0x1a1a22), 0, 0.02, 0));
+      const leaf = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.012, 14, 1, false, Math.PI * 0.62, Math.PI * 0.76), mat(accent, { metal: 0.3, rough: 0.5 }));
+      leaf.rotation.x = Math.PI / 2;
+      leaf.position.set(0, -0.08, 0);
+      leaf.rotation.z = Math.PI;
+      leaf.castShadow = true;
+      g.add(leaf);
+      for (let i = 0; i < 7; i++) {
+        const a = -0.95 + (i / 6) * 1.9;
+        const rib = box(0.018, 0.5, 0.016, steel, Math.sin(a) * 0.25, -0.08 - Math.cos(a) * 0.25, 0.012);
+        rib.rotation.z = -a;
+        g.add(rib);
+      }
+      const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.016, 10), mat(0xb3261e));
+      dot.rotation.x = Math.PI / 2;
+      dot.position.set(0, -0.38, 0.01);
+      g.add(dot);
+      return { group: g, tip: 0.62, base: 0.15, twoHanded: false };
+    }
+    case 'masakari': {
+      const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.036, 1.75, 6), wood);
+      haft.position.y = -0.55;
+      haft.castShadow = true;
+      g.add(haft);
+      // a broad crescent head, its spike behind
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.03, 10, 1, false, -Math.PI * 0.32, Math.PI * 0.64), steel);
+      head.rotation.z = Math.PI / 2;
+      head.position.set(0, -1.25, 0.06);
+      head.castShadow = true;
+      g.add(head);
+      g.add(box(0.06, 0.26, 0.16, mat(0x2a2a30, { metal: 0.7, rough: 0.4 }), 0, -1.3, 0));
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.22, 4), steel);
+      spike.rotation.x = -Math.PI / 2;
+      spike.position.set(0, -1.3, -0.17);
+      g.add(spike);
+      g.add(box(0.05, 0.08, 0.05, gold, 0, -1.48, 0), box(0.05, 0.08, 0.05, gold, 0, 0.3, 0));
+      return { group: g, tip: 1.62, base: 0.95, twoHanded: true };
+    }
+    case 'bo': {
+      const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.3, 6), mat(0x5a3a22));
+      staff.position.y = -0.55;
+      staff.castShadow = true;
+      g.add(staff);
+      for (const y of [0.6, -1.7]) g.add(box(0.075, 0.16, 0.075, mat(0x2a2a30, { metal: 0.7, rough: 0.4 }), 0, y, 0));
+      for (const y of [0.2, -1.3]) g.add(box(0.068, 0.04, 0.068, gold, 0, y, 0));
+      return { group: g, tip: 1.75, base: 0.4, twoHanded: true };
+    }
     default: {
       const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.026, 0.34, 6), mat(0x1a1a22));
       handle.position.y = 0.02;

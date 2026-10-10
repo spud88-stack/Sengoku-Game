@@ -234,6 +234,44 @@ gun.charges = [
 gun.airHeavy = shot('g_ah', 0.6, [h(0.14, 0.2, 9, 360, 24, 'knock', 9, 0.08, { lift: 5, shake: 0.3 })], { air: true, kind: 'air' });
 gun.super = m('g_super', 2.4, 2.4, [...flurry(0.3, 1.8, 12, 11, 8), h(2.0, 2.12, 13, 360, 55, 'knock', 17, 0.18, { lift: 8, shake: 1, gb: true })], { armor: true, invuln: true, sfx: 'super', kind: 'super', turn: 1.8 });
 
+// Kusarigama: a sickle on a long weighted chain. The longest reach of any blade; its cuts drag the enemy in.
+const kusarigama = derive(katana, 'kusarigama', 'q', { speed: 0.96, range: 1.5, dmg: 0.78, stop: 0.8 });
+kusarigama.lights.forEach((mv, i) =>
+  mv.hits.forEach((x) => {
+    x.arc = Math.min(360, x.arc + 50);
+    if (i === 2 || i === 3) x.pull = true;
+  }),
+);
+kusarigama.charges[2] = { ...kusarigama.charges[2], hits: kusarigama.charges[2].hits.map((x, i, a) => (i < a.length - 1 ? { ...x, pull: true, arc: 220 } : x)) };
+kusarigama.dash.hits.forEach((x) => (x.pull = true));
+kusarigama.super = { ...kusarigama.super, hits: [...flurry(0.3, 1.8, 11, 6.2, 8, { pull: true }), ...kusarigama.super.hits.slice(-1).map((x) => ({ ...x, range: 7.5 }))] };
+
+// Tessen: an iron war fan. Quick, light cuts that throw up gusts: everything bowls over and out of the way.
+const tessen = derive(katana, 'tessen', 'f', { speed: 0.88, range: 1.12, dmg: 0.76, stop: 0.85, kb: 1.6 });
+tessen.lights.forEach((mv) => mv.hits.forEach((x) => (x.arc = Math.min(360, x.arc + 80))));
+for (const mv of [...tessen.charges, tessen.airHeavy])
+  mv.hits.forEach((x) => {
+    x.range *= 1.2;
+    x.arc = Math.max(x.arc, 200);
+  });
+tessen.charges[0] = { ...tessen.charges[0], hits: tessen.charges[0].hits.map((x) => ({ ...x, range: 5.5, arc: 70, react: 'knock' as const, kb: 14, lift: 3 })) };
+
+// Masakari: a great axe. Four slow, crushing blows, none of which can be interrupted, and every charge breaks guard.
+const masakari = derive(katana, 'masakari', 'a', { speed: 1.3, range: 1.2, dmg: 1.62, stop: 1.6, kb: 1.35 }, 4);
+masakari.lights.forEach((mv, i) => {
+  if (i >= 1) mv.armor = true;
+  mv.hits.forEach((x) => (x.shake = Math.max(x.shake ?? 0, 0.15)));
+});
+masakari.charges.forEach((mv) => mv.hits.forEach((x) => (x.gb = true)));
+
+// Bo: a fighting staff. Both ends strike, so every cut of the string lands twice and spins clear a full circle.
+const bo = derive(yari, 'bo', 's', { speed: 0.88, range: 0.95, dmg: 0.62, stop: 0.75, kb: 1.25 });
+bo.lights = bo.lights.map((mv, i) => {
+  const wide = { ...mv, hits: mv.hits.map((x) => ({ ...x, arc: Math.max(x.arc, i === 3 ? 360 : 220) })) };
+  return i < 4 ? echo(wide, 0.09, 0.75) : wide;
+});
+bo.charges[2] = echo(bo.charges[2], 0.05, 0.6);
+
 /** Saddle attacks, shared by every officer. The horse keeps moving while they play. */
 export const MOUNTED: MoveDef[] = [
   m('m_l1', 0.46, 0.26, [h(0.1, 0.24, 3.4, 200, 15, 'stagger', 5, 0.035)], { sfx: 'light', kind: 'light', mounted: true }),
@@ -243,7 +281,7 @@ export const MOUNTED: MoveDef[] = [
 /** What a galloping horse does to anyone in its way. */
 export const TRAMPLE: MoveDef = m('m_tr', 1, 1, [h(0, 9, 1.9, 130, 9, 'knock', 8, 0, { lift: 3.5 })], { kind: 'dash', mounted: true });
 
-export const MOVESETS: Partial<Record<WeaponKind, Moveset>> = { katana, yari, dual, odachi, naginata, kanabo, gun };
+export const MOVESETS: Partial<Record<WeaponKind, Moveset>> = { katana, yari, dual, odachi, naginata, kanabo, gun, kusarigama, tessen, masakari, bo };
 
 export function movesetFor(w: WeaponKind): Moveset {
   return MOVESETS[w] ?? katana;

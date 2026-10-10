@@ -1,6 +1,7 @@
 import type { Audio } from '../core/audio';
 import { levelOf, profile, saveProfile } from '../core/save';
 import { PROVINCES, SCENARIOS, STRATAGEMS } from '../data/empire';
+import { WEAPONS as WEAPON_LIST } from '../data/weapons';
 import { CLANS } from '../data/officers';
 import { DIFFICULTY } from '../data/tuning';
 import * as E from '../sim/empire';
@@ -26,15 +27,7 @@ const MW = 810,
   MH = 450,
   OX = 55,
   OY = 130;
-const WEAPONS: [WeaponKind, string][] = [
-  ['katana', 'Katana'],
-  ['yari', 'Cross Spear'],
-  ['naginata', 'Naginata'],
-  ['dual', 'Twin Blades'],
-  ['odachi', 'Great Sword'],
-  ['kanabo', 'Iron Club'],
-  ['gun', 'Matchlock'],
-];
+const WEAPONS: [WeaponKind, string][] = WEAPON_LIST.map((w) => [w.id, w.name]);
 const TEMPERS: [Personality, string][] = [
   ['honorable', 'Honourable'],
   ['reckless', 'Reckless'],

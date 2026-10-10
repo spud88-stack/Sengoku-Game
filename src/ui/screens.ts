@@ -5,6 +5,7 @@ import { BATTLES, sideOf, type BattleSpec } from '../data/battles';
 import { movesetFor } from '../data/moves';
 import { CLANS, OFFICERS, ROSTER } from '../data/officers';
 import { DIFFICULTY } from '../data/tuning';
+import { WEAPON_NAMES } from '../data/weapons';
 import { defaultQuality, QUALITY, type Quality } from '../view/gfx';
 
 export interface BattleResult {
@@ -52,7 +53,6 @@ export function h(tag: string, attrs: Record<string, any> = {}, ...kids: (Child 
   return e;
 }
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
-const WEAPON_NAMES: Record<string, string> = { katana: 'Katana', yari: 'Cross Spear', naginata: 'Naginata', dual: 'Twin Blades', odachi: 'Great Sword', kanabo: 'Iron Club', gun: 'Matchlock', bow: 'Bow' };
 const TEMPER: Record<string, string> = { reckless: 'Reckless', patient: 'Patient', cunning: 'Cunning', honorable: 'Honourable' };
 
 export function grade(r: BattleResult): string {

@@ -60,7 +60,7 @@ export interface Moveset {
   super: MoveDef;
 }
 
-export type WeaponKind = 'katana' | 'yari' | 'naginata' | 'dual' | 'odachi' | 'kanabo' | 'gun' | 'bow';
+export type WeaponKind = 'katana' | 'yari' | 'naginata' | 'dual' | 'odachi' | 'kanabo' | 'gun' | 'bow' | 'kusarigama' | 'tessen' | 'masakari' | 'bo';
 
 export type Personality = 'reckless' | 'patient' | 'cunning' | 'honorable';
 
