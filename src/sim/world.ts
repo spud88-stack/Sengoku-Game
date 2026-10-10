@@ -2,6 +2,7 @@ import { DIFFICULTY, TUNE, type Difficulty } from '../data/tuning';
 import { clamp, Rng } from '../core/math';
 import { Fighter, type Controller } from './fighter';
 import { STRATS, type StratId } from '../data/stratagems';
+import { Terrain } from './terrain';
 import type { HitDef, MoveDef, OfficerDef, SimEvent } from './types';
 
 const S = TUNE.soldier;
@@ -185,6 +186,8 @@ export class World {
   obstacles: { x: number; z: number; r: number }[];
   half: number;
   def: BattleDef;
+  /** the shape of the ground; the sim itself stays in ground-relative heights */
+  terrain: Terrain;
   diff: Difficulty;
   player: Fighter | null = null;
   playerTeam = 0;
@@ -229,6 +232,7 @@ export class World {
     this.diff = DIFFICULTY[difficulty] ?? DIFFICULTY.normal;
     this.reserves = [...def.reserves];
     this.obstacles = def.obstacles ?? [];
+    this.terrain = new Terrain(def);
     this.gridN = Math.ceil((def.half * 2) / CELL) + 1;
     // start empty: the view can query the grid on a frame too short to have run the first step
     this.head = new Int32Array(this.gridN * this.gridN).fill(-1);

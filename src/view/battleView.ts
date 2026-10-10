@@ -29,6 +29,7 @@ interface RigView {
 }
 
 const KO_MILESTONES = [50, 100, 200, 300, 500, 750, 1000, 1500, 2000];
+const UP = new THREE.Vector3(0, 1, 0);
 
 function namePlate(text: string, color: number): THREE.Sprite {
   color = new THREE.Color(color).getHex();
@@ -105,7 +106,12 @@ export class BattleView {
     this.teamColors = clans.map((c) => c.color);
     // two armies in the same colours would be unplayable
     if (new THREE.Color(this.teamColors[0]).getHexString() === new THREE.Color(this.teamColors[1]).getHexString()) this.teamColors[1] = 0x8a8578;
-    this.stage = buildStage(w.def, this.teamColors, clans.map((c) => c.mon));
+    this.stage = buildStage(w.def, this.teamColors, clans.map((c) => c.mon), w.terrain);
+    this.fx.ground = (x, z) => w.terrain.height(x, z);
+    this.fx.groundNormal = (x, z, out) => {
+      w.terrain.normal(x, z, out);
+      return out;
+    };
     const scene = this.stage.scene;
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.3, 1200);
     renderer.toneMappingExposure = scene.userData.exposure ?? 1.05;
@@ -285,6 +291,19 @@ export class BattleView {
     this.renderer.render(this.stage.scene, this.camera);
   }
 
+  private gy(x: number, z: number) {
+    return this.world.terrain.height(x, z);
+  }
+
+  private nrm = new THREE.Vector3();
+  private qb = new THREE.Quaternion();
+  /** Lay a ground ring on the slope at (x, z), turned by `spin`. */
+  private layFlat(m: THREE.Object3D, x: number, z: number, spin: number) {
+    m.position.set(x, this.gy(x, z) + 0.08, z);
+    this.world.terrain.normal(x, z, this.nrm);
+    m.quaternion.setFromUnitVectors(UP, this.nrm).multiply(this.qb.setFromAxisAngle(UP, spin));
+  }
+
   private addWarning(x: number, z: number, r: number, t: number, color: number) {
     if (!this.warnTex) {
       const c = document.createElement('canvas');
@@ -303,10 +322,13 @@ export class BattleView {
       g.stroke();
       this.warnTex = new THREE.CanvasTexture(c);
     }
-    const geo = new THREE.PlaneGeometry(2 * r, 2 * r);
+    const geo = new THREE.PlaneGeometry(2 * r, 2 * r, 16, 16);
     geo.rotateX(-Math.PI / 2);
+    // drape it over the ground so the whole circle shows on a slope
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) pos.setY(i, this.gy(x + pos.getX(i), z + pos.getZ(i)) + 0.15);
     const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: this.warnTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-    mesh.position.set(x, 0.12, z);
+    mesh.position.set(x, 0, z);
     mesh.renderOrder = 3;
     this.stage.scene.add(mesh);
     this.warnings.push({ mesh, t: t, max: t });
@@ -318,7 +340,8 @@ export class BattleView {
       wv.t -= dt;
       const k = 1 - Math.max(0, wv.t) / wv.max;
       (wv.mesh.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.65 * Math.abs(Math.sin(this.time * (6 + k * 14)));
-      wv.mesh.scale.setScalar(1.08 - k * 0.08);
+      const sc = 1.08 - k * 0.08;
+      wv.mesh.scale.set(sc, 1, sc);
       if (wv.t <= 0) {
         this.stage.scene.remove(wv.mesh);
         wv.mesh.geometry.dispose();
@@ -572,9 +595,10 @@ export class BattleView {
           const f = rv.f;
           rv.rig.root.updateMatrixWorld(true);
           rv.rig.tip.getWorldPosition(this.tipV);
-          fx.flash(this.tipV.x, this.tipV.y, this.tipV.z, 2.6, 0xffc070, 0.09);
-          fx.sparks(this.tipV.x, this.tipV.y, this.tipV.z, 10, 0xffb060, 14);
-          fx.tracers(this.tipV.x, this.tipV.y, this.tipV.z, f.face, e.arc, e.range);
+          const ty = this.tipV.y - this.gy(this.tipV.x, this.tipV.z);
+          fx.flash(this.tipV.x, ty, this.tipV.z, 2.6, 0xffc070, 0.09);
+          fx.sparks(this.tipV.x, ty, this.tipV.z, 10, 0xffb060, 14);
+          fx.tracers(this.tipV.x, ty, this.tipV.z, f.face, e.arc, e.range);
           fx.dust(f.x, f.z, 3, 2, 0xb0b0b0);
           au.shot(clamp(1.2 - near(f.x, f.z) / 50, 0.15, 1));
           if (f.isPlayer) this.trauma = Math.min(1, this.trauma + 0.22);
@@ -659,6 +683,7 @@ export class BattleView {
       const x = f.px + (f.x - f.px) * alpha,
         y = f.py + (f.y - f.py) * alpha,
         z = f.pz + (f.z - f.pz) * alpha;
+      const g = this.gy(x, z);
       if (f.mounted && !rv.horse) {
         rv.horse = new THREE.Mesh(BattleView.horseGeo ?? (BattleView.horseGeo = horseGeometry()), new THREE.MeshLambertMaterial({ color: 0x3a2a20, flatShading: true }));
         rv.horse.castShadow = true;
@@ -671,11 +696,11 @@ export class BattleView {
         if (riding) {
           const gallop = Math.min(1, Math.hypot(f.vx, f.vz) / 8);
           rv.phase += Math.hypot(f.vx, f.vz) * dt * 0.9;
-          rv.horse.position.set(x, y + Math.abs(Math.sin(rv.phase)) * 0.14 * gallop, z);
+          rv.horse.position.set(x, g + y + Math.abs(Math.sin(rv.phase)) * 0.14 * gallop, z);
           rv.horse.rotation.set(Math.sin(rv.phase * 2) * 0.05 * gallop, f.face, 0, 'YXZ');
         }
       }
-      rig.root.position.set(x, y + (riding ? 0.86 + Math.abs(Math.sin(rv.phase)) * 0.14 * Math.min(1, Math.hypot(f.vx, f.vz) / 8) : 0), z);
+      rig.root.position.set(x, g + y + (riding ? 0.86 + Math.abs(Math.sin(rv.phase)) * 0.14 * Math.min(1, Math.hypot(f.vx, f.vz) / 8) : 0), z);
       rig.root.rotation.y = f.face;
 
       const wk = f.def.weapon;
@@ -778,7 +803,7 @@ export class BattleView {
       if (rv.plate) {
         const d = Math.hypot(x - p.x, z - p.z);
         rv.plate.visible = d < 70 && f.state !== 'dead';
-        rv.plate.position.set(x, y + 2.75 * f.scale, z);
+        rv.plate.position.set(x, g + y + 2.75 * f.scale, z);
         const s = clamp(d / 14, 0.8, 3.2);
         rv.plate.scale.set(3.4 * s * 0.5, 0.64 * s * 0.5, 1);
       }
@@ -794,18 +819,16 @@ export class BattleView {
       const it = items[i];
       m.visible = !!it;
       if (!it) return;
-      m.position.set(it.x, 0.7 + Math.sin(this.time * 3 + i) * 0.15, it.z);
+      m.position.set(it.x, this.gy(it.x, it.z) + 0.7 + Math.sin(this.time * 3 + i) * 0.15, it.z);
       m.rotation.y = this.time * 2;
       (m.material as THREE.MeshBasicMaterial).color.set(it.kind === 'heal' ? 0x7be08a : 0xf6dc7a);
       if (dt > 0 && Math.random() < 0.15) this.fx.embers(it.x, 0.2, it.z, 1, it.kind === 'heal' ? 0x7be08a : 0xf6dc7a, 0.3);
     });
-    this.selfRing.position.set(p.px + (p.x - p.px) * alpha, 0.06, p.pz + (p.z - p.pz) * alpha);
-    this.selfRing.rotation.y = this.time * 0.8;
+    this.layFlat(this.selfRing, p.px + (p.x - p.px) * alpha, p.pz + (p.z - p.pz) * alpha, this.time * 0.8);
     const lk = p.lock;
     this.lockRing.visible = !!lk && !lk.dead;
     if (lk) {
-      this.lockRing.position.set(lk.x, 0.07, lk.z);
-      this.lockRing.rotation.y = -this.time * 2;
+      this.layFlat(this.lockRing, lk.x, lk.z, -this.time * 2);
       this.lockRing.scale.setScalar(2.6 + Math.sin(this.time * 6) * 0.2);
     }
   }
@@ -875,11 +898,14 @@ export class BattleView {
     const follow = 1 - Math.exp(-14 * rawDt);
     this.camTarget.x += (tx - this.camTarget.x) * follow;
     this.camTarget.z += (tz - this.camTarget.z) * follow;
-    this.camTarget.y += (1.55 + py * 0.7 - this.camTarget.y) * (1 - Math.exp(-8 * rawDt));
+    this.camTarget.y += (this.gy(px, pz) + 1.55 + py * 0.7 - this.camTarget.y) * (1 - Math.exp(-8 * rawDt));
 
     const cp = Math.cos(this.camPitch),
       sp = Math.sin(this.camPitch);
-    this.camPos.set(this.camTarget.x - Math.sin(this.camYaw) * cp * this.camDist, Math.max(0.5, this.camTarget.y + sp * this.camDist), this.camTarget.z - Math.cos(this.camYaw) * cp * this.camDist);
+    const cx = this.camTarget.x - Math.sin(this.camYaw) * cp * this.camDist,
+      cz = this.camTarget.z - Math.cos(this.camYaw) * cp * this.camDist;
+    // never let a hillside come between the camera and the player
+    this.camPos.set(cx, Math.max(this.gy(cx, cz) + 0.8, this.gy((cx + px) / 2, (cz + pz) / 2) + 1.2, this.camTarget.y + sp * this.camDist), cz);
 
     // trauma-squared shake reads as impact rather than wobble
     this.trauma = Math.max(0, this.trauma - rawDt * 1.9);
@@ -899,8 +925,9 @@ export class BattleView {
     }
 
     const sun = this.stage.sun;
-    sun.position.set(px + 40, 70, pz + 25);
-    sun.target.position.set(px, 0, pz);
+    const sg = this.gy(px, pz);
+    sun.position.set(px + 40, sg + 70, pz + 25);
+    sun.target.position.set(px, sg, pz);
     void dt;
   }
 

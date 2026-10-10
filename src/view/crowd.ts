@@ -112,6 +112,7 @@ export class Crowd {
       guns = 0,
       horses = 0;
     const sol = w.soldiers;
+    const T = w.terrain;
     for (let i = 0; i < sol.length; i++) {
       const s: Soldier = sol[i];
       if (!s.active) continue;
@@ -121,7 +122,8 @@ export class Crowd {
       }
       const x = s.px + (s.x - s.px) * alpha,
         z = s.pz + (s.z - s.pz) * alpha;
-      let y = s.py + (s.y - s.py) * alpha;
+      const g = T.height(x, z);
+      let y = g + s.py + (s.y - s.py) * alpha;
       const kind = s.kind;
       const ranged = kind === SK.Archer || kind === SK.Gunner;
 
@@ -242,7 +244,7 @@ export class Crowd {
       if (mounted && horses < 200) {
         this.M.makeRotationY(s.face);
         e[12] = x;
-        e[13] = s.y + Math.abs(Math.sin(s.phase * 0.5)) * 0.1;
+        e[13] = g + s.y + Math.abs(Math.sin(s.phase * 0.5)) * 0.1;
         e[14] = z;
         this.horse.setMatrixAt(horses, this.M);
         this.horse.setColorAt(horses++, this.horseBrown[s.uid % 4]);
@@ -273,7 +275,7 @@ export class Crowd {
       this.M.makeRotationY(Math.atan2(sh.vx, sh.vz));
       const el = this.M.elements;
       el[12] = sh.x;
-      el[13] = sh.y;
+      el[13] = sh.y + T.height(sh.x, sh.z);
       el[14] = sh.z;
       if (sh.gun) this.M.scale(VSCALE.set(1.6, 1.6, 2.6));
       this.arrows.setMatrixAt(a, this.M);

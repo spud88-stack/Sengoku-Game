@@ -58,7 +58,7 @@ class ParticleLayer {
     this.ps.push(p);
   }
 
-  update(dt: number, onGround?: (p: P) => void) {
+  update(dt: number, ground: (x: number, z: number) => number, onGround?: (p: P) => void) {
     let n = 0;
     for (let i = this.ps.length - 1; i >= 0; i--) {
       const p = this.ps[i];
@@ -71,7 +71,7 @@ class ParticleLayer {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;
-      if (p.y <= 0.02 && p.grav > 0) {
+      if (p.grav > 0 && p.vy < 0 && p.y <= ground(p.x, p.z) + 0.02) {
         if (p.blood && onGround) onGround(p);
         p.life = 0;
       }
@@ -101,6 +101,9 @@ class ParticleLayer {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 }
+
+const DSCALE = new THREE.Vector3();
+const DPOS = new THREE.Vector3();
 
 function splatTexture(seed: number): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -288,6 +291,18 @@ export class Fx {
   private quad = new THREE.PlaneGeometry(1, 1);
   private m = new THREE.Matrix4();
   private col = new THREE.Color();
+  /**
+   * Ground height under a point. Every effect takes heights relative to the ground (as the sim does)
+   * and lifts itself onto the terrain with this.
+   */
+  ground: (x: number, z: number) => number = () => 0;
+  /** surface normal, for laying flat things on slopes */
+  groundNormal: (x: number, z: number, out: THREE.Vector3) => THREE.Vector3 = (_x, _z, out) => out.set(0, 1, 0);
+  private nrm = new THREE.Vector3();
+  private qa = new THREE.Quaternion();
+  private qb = new THREE.Quaternion();
+  private static UP = new THREE.Vector3(0, 1, 0);
+  private static FWD = new THREE.Vector3(0, 0, 1);
 
   constructor() {
     this.solid = new ParticleLayer(TUNE.blood.max, false);
@@ -315,10 +330,12 @@ export class Fx {
     const im = this.decals[k];
     const i = this.decalNext[k] % this.decalCap;
     this.decalNext[k]++;
-    this.m.makeRotationY(Math.random() * 6.28);
-    this.m.scale(new THREE.Vector3(size, 1, size * (0.7 + Math.random() * 0.6)));
-    this.m.setPosition(x, 0.03 + Math.random() * 0.02, z);
-    im.setMatrixAt(i, this.m);
+    // lie flat on the slope, turned at random
+    this.groundNormal(x, z, this.nrm);
+    this.qa.setFromUnitVectors(Fx.UP, this.nrm).multiply(this.qb.setFromAxisAngle(Fx.UP, Math.random() * 6.28));
+    DSCALE.set(size, 1, size * (0.7 + Math.random() * 0.6));
+    DPOS.set(x, this.ground(x, z) + 0.05 + Math.random() * 0.02, z);
+    im.setMatrixAt(i, this.m.compose(DPOS, this.qa, DSCALE));
     const d = 0.3 + Math.random() * 0.25;
     im.setColorAt(i, shade ?? this.col.setRGB(d, 0.01, 0.015));
     im.count = Math.min(this.decalCap, Math.max(im.count, i + 1));
@@ -330,6 +347,7 @@ export class Fx {
   blood(x: number, y: number, z: number, dx: number, dz: number, weight: number) {
     if (this.bloodLevel <= 0) return;
     const n = Math.round((5 + weight * 16) * this.bloodLevel);
+    const g0 = this.ground(x, z);
     for (let i = 0; i < n; i++) {
       const sp = 2.5 + Math.random() * (5 + weight * 6);
       const a = (Math.random() - 0.5) * 1.5;
@@ -338,7 +356,7 @@ export class Fx {
       const shade = 0.42 + Math.random() * 0.3;
       this.solid.add({
         x: x + (Math.random() - 0.5) * 0.2,
-        y: y + (Math.random() - 0.5) * 0.4,
+        y: y + g0 + (Math.random() - 0.5) * 0.4,
         z: z + (Math.random() - 0.5) * 0.2,
         vx: (dx * ca - dz * sa) * sp,
         vy: 1.5 + Math.random() * (4 + weight * 3),
@@ -361,6 +379,7 @@ export class Fx {
 
   sparks(x: number, y: number, z: number, n: number, color = 0xffd27a, speed = 9) {
     this.col.set(color);
+    y += this.ground(x, z);
     for (let i = 0; i < n; i++) {
       const a = Math.random() * 6.28,
         e = (Math.random() - 0.3) * 1.6,
@@ -371,16 +390,18 @@ export class Fx {
 
   dust(x: number, z: number, n: number, speed = 3, color = 0x9a8b70) {
     this.col.set(color);
+    const g0 = this.ground(x, z);
     for (let i = 0; i < n; i++) {
       const a = Math.random() * 6.28,
         sp = speed * (0.4 + Math.random());
-      this.solid.add({ x, y: 0.15, z, vx: Math.cos(a) * sp, vy: 0.8 + Math.random() * 1.6, vz: Math.sin(a) * sp, life: 0.5 + Math.random() * 0.4, max: 0.9, size: 0.16 + Math.random() * 0.18, stretch: 0, grav: -0.02, drag: 3.5, r: this.col.r, g: this.col.g, b: this.col.b, blood: false });
+      this.solid.add({ x, y: g0 + 0.15, z, vx: Math.cos(a) * sp, vy: 0.8 + Math.random() * 1.6, vz: Math.sin(a) * sp, life: 0.5 + Math.random() * 0.4, max: 0.9, size: 0.16 + Math.random() * 0.18, stretch: 0, grav: -0.02, drag: 3.5, r: this.col.r, g: this.col.g, b: this.col.b, blood: false });
     }
   }
 
   /** Bullet streaks fanned across an arc. */
   tracers(x: number, y: number, z: number, face: number, arcDeg: number, range: number) {
     const n = arcDeg >= 360 ? 16 : Math.max(1, Math.round(arcDeg / 9));
+    y += this.ground(x, z);
     for (let i = 0; i < n; i++) {
       const a = face + (arcDeg >= 360 ? (i / n) * 6.28 : ((i + 0.5) / n - 0.5) * arcDeg * 0.0174);
       const sp = 95;
@@ -393,7 +414,9 @@ export class Fx {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * 6.28,
         r = Math.random() * radius;
-      this.glow.add({ x: x + Math.cos(a) * r, y: y + Math.random() * 1.6, z: z + Math.sin(a) * r, vx: -Math.sin(a) * 3, vy: 2 + Math.random() * 3, vz: Math.cos(a) * 3, life: 0.5 + Math.random() * 0.4, max: 0.9, size: 0.07, stretch: 0.1, grav: -0.1, drag: 1, r: this.col.r, g: this.col.g, b: this.col.b, blood: false });
+      const ex = x + Math.cos(a) * r,
+        ez = z + Math.sin(a) * r;
+      this.glow.add({ x: ex, y: this.ground(ex, ez) + y + Math.random() * 1.6, z: ez, vx: -Math.sin(a) * 3, vy: 2 + Math.random() * 3, vz: Math.cos(a) * 3, life: 0.5 + Math.random() * 0.4, max: 0.9, size: 0.07, stretch: 0.1, grav: -0.1, drag: 1, r: this.col.r, g: this.col.g, b: this.col.b, blood: false });
     }
   }
 
@@ -415,8 +438,9 @@ export class Fx {
         side = (Math.random() - 0.5) * 14;
       const sx = x + (ax / al) * back - (az / al) * side,
         sz = z + (az / al) * back + (ax / al) * side,
-        sy = 1.6;
-      this.glow.add({ x: sx, y: sy, z: sz, vx: (tx - sx) / t, vy: (0.5 * g * t * t - sy) / t, vz: (tz - sz) / t, life: t + 0.05, max: t + 0.05, size: 0.09, stretch: 0.22, grav, drag: 0, r: 1, g: 0.38, b: 0.06, blood: false, hold: true });
+        sy = this.ground(sx, sz) + 1.6,
+        ty = this.ground(tx, tz);
+      this.glow.add({ x: sx, y: sy, z: sz, vx: (tx - sx) / t, vy: (ty + 0.5 * g * t * t - sy) / t, vz: (tz - sz) / t, life: t + 0.05, max: t + 0.05, size: 0.09, stretch: 0.22, grav, drag: 0, r: 1, g: 0.38, b: 0.06, blood: false, hold: true });
     }
   }
 
@@ -429,7 +453,7 @@ export class Fx {
       const px = x + Math.cos(a) * rr,
         pz = z + Math.sin(a) * rr;
       const hot = Math.random();
-      this.glow.add({ x: px, y: 0.1, z: pz, vx: (Math.random() - 0.5) * 0.8, vy: 2 + Math.random() * 2.5, vz: (Math.random() - 0.5) * 0.8, life: 0.5 + Math.random() * 0.5, max: 1, size: 0.18 + Math.random() * 0.22, stretch: 0.15, grav: -0.05, drag: 1.2, r: 1, g: 0.35 + hot * 0.4, b: 0.08 + hot * 0.1, blood: false });
+      this.glow.add({ x: px, y: this.ground(px, pz) + 0.1, z: pz, vx: (Math.random() - 0.5) * 0.8, vy: 2 + Math.random() * 2.5, vz: (Math.random() - 0.5) * 0.8, life: 0.5 + Math.random() * 0.5, max: 1, size: 0.18 + Math.random() * 0.22, stretch: 0.15, grav: -0.05, drag: 1.2, r: 1, g: 0.35 + hot * 0.4, b: 0.08 + hot * 0.1, blood: false });
     }
   }
 
@@ -461,7 +485,8 @@ export class Fx {
   /** Camera-facing burst at a hit point. */
   flash(x: number, y: number, z: number, size: number, color = 0xffffff, life = 0.12, star = true) {
     const mesh = this.flashMesh(star ? this.tex.star : this.tex.glow, color);
-    mesh.position.set(x, y, z);
+    (mesh.material as THREE.MeshBasicMaterial).depthTest = true;
+    mesh.position.set(x, y + this.ground(x, z), z);
     mesh.rotation.set(0, 0, Math.random() * 3.14);
     this.flashes.push({ mesh, life, max: life, s0: size * 0.5, s1: size, flat: false });
   }
@@ -469,16 +494,18 @@ export class Fx {
   /** Expanding ring on the ground for slams, landings and supers. */
   ring(x: number, z: number, size: number, color = 0xfff0d0, life = 0.35) {
     const mesh = this.flashMesh(this.tex.ring, color);
-    mesh.position.set(x, 0.08, z);
-    mesh.rotation.set(-Math.PI / 2, 0, 0);
+    // a wide ring on a slope would sink into it, so it is drawn over the ground
+    (mesh.material as THREE.MeshBasicMaterial).depthTest = false;
+    mesh.position.set(x, this.ground(x, z) + 0.12, z);
+    mesh.quaternion.setFromUnitVectors(Fx.FWD, this.groundNormal(x, z, this.nrm));
     this.flashes.push({ mesh, life, max: life, s0: size * 0.2, s1: size, flat: true });
   }
 
   update(dt: number, camera: THREE.Camera) {
-    this.solid.update(dt, (p) => {
+    this.solid.update(dt, this.ground, (p) => {
       if (Math.random() < 0.25) this.decal(p.x, p.z, 0.2 + Math.random() * 0.5 + p.size * 3);
     });
-    this.glow.update(dt);
+    this.glow.update(dt, this.ground);
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
       f.life -= dt;

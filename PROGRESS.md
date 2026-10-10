@@ -26,7 +26,7 @@ Build brief: `PROMPT.md`. Player-facing notes: `README.md`. Node lives in `~/.lo
 - Empire Mode: 3 scenarios, custom lord, 31 provinces, development, levies, search/hire/reward/suborn, pacts and betrayal, stratagems that appear in battle, allied reinforcements, captives, auto-resolve, save/resume, four endings.
 
 ## Decisions worth knowing
-- Sim is 2D plus height. Terrain is flat; camps are open rings, so no pathfinding is needed.
+- Sim is 2D plus height, with y measured from the ground. `sim/terrain.ts` shapes the ground (hills, rivers, ridges, raised camps, per battle) and the view lifts everything onto it, so the hills change the look and not the balance. Camps are open rings on levelled ground, so no pathfinding is needed.
 - Tempo is tuned so an AI-only battle lasts 4 to 13 minutes: AI officers march at half speed, hurt each other at `npcDuelScale`, and a camp cannot fall while a defending officer stands in it. The player ignores all three limits, which is what makes them decisive.
 - Reinforcement waves are per army, not per camp, so holding more camps does not snowball troop numbers.
 - Own terms throughout (Ougi, Shura); officers are historical people with original designs.

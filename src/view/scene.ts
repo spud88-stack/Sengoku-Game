@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Rng } from '../core/math';
 import type { BattleDef } from '../sim/world';
+import type { Terrain } from '../sim/terrain';
 
 export interface Stage {
   scene: THREE.Scene;
@@ -102,7 +103,51 @@ function monTexture(text: string, bg: string, fg: string): THREE.CanvasTexture {
   return t;
 }
 
-export function buildStage(def: BattleDef, teamColors: number[], teamMons: string[]): Stage {
+/** The ground as a mesh: displaced by the terrain, painted with the field texture, shaded by slope and height. */
+function groundMesh(def: BattleDef, terrain: Terrain, tex: THREE.Texture, tint: number): THREE.Mesh {
+  const E = terrain.extent,
+    half = def.half;
+  const segs = Math.round((E * 2) / 2.2);
+  const geo = new THREE.PlaneGeometry(E * 2, E * 2, segs, segs);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+  const colors = new Float32Array(pos.count * 3);
+  const n = { x: 0, y: 0, z: 0 };
+  const grass = new THREE.Color(0xffffff),
+    rock = new THREE.Color(0x9a8f80),
+    mud = new THREE.Color(0x7a6a52),
+    high = new THREE.Color(0xe4e8c8),
+    c = new THREE.Color();
+  const water = terrain.water;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i),
+      z = pos.getZ(i);
+    const y = terrain.height(x, z);
+    pos.setY(i, y);
+    // the field texture covers the playable area; beyond it the edge colour carries on
+    uv.setXY(i, (x + half) / (2 * half), 1 - (z + half) / (2 * half));
+    terrain.normal(x, z, n);
+    c.copy(grass);
+    // high ground is drier and paler, slopes show bare earth, the river banks are mud
+    c.lerp(high, Math.min(1, Math.max(0, (y - 3) / 12)) * 0.5);
+    c.lerp(rock, Math.min(1, Math.max(0, (0.97 - n.y) / 0.17)));
+    if (water !== null) c.lerp(mud, Math.min(1, Math.max(0, (water + 1.1 - y) / 0.9)));
+    // a little ambient occlusion in the hollows
+    const shade = 0.88 + 0.12 * Math.min(1, Math.max(0, (y + 2) / 6));
+    colors[i * 3] = c.r * shade;
+    colors[i * 3 + 1] = c.g * shade;
+    colors[i * 3 + 2] = c.b * shade;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex, color: tint, vertexColors: true }));
+  m.receiveShadow = true;
+  return m;
+}
+
+export function buildStage(def: BattleDef, teamColors: number[], teamMons: string[], terrain: Terrain): Stage {
+  const gy = (x: number, z: number) => terrain.height(x, z);
   const rng = new Rng(77);
   const scene = new THREE.Scene();
   const sk = SKIES[def.sky ?? 'day'] ?? SKIES.day;
@@ -140,14 +185,35 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
   sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(def.half * 2, def.half * 2), new THREE.MeshLambertMaterial({ map: groundTexture(def, rng), color: sk.ground }));
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
-  const apron = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshLambertMaterial({ color: new THREE.Color(0x5d6b3a).multiply(new THREE.Color(sk.ground)) }));
-  apron.rotation.x = -Math.PI / 2;
-  apron.position.y = -0.05;
-  scene.add(apron);
+  scene.add(groundMesh(def, terrain, groundTexture(def, rng), sk.ground));
+  // beyond the modelled ground, a plain sheet at about the height the edges climb to
+  const rimY = terrain.spec.rim * 0.8;
+  // a frame of four strips around the terrain, out to the horizon (a full sheet would cover the field)
+  const apronMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(0x5d6b3a).multiply(new THREE.Color(sk.ground)) });
+  const E0 = terrain.extent - 2,
+    FAR = 1200;
+  for (const [w, d, x, z] of [
+    [FAR * 2, FAR - E0, 0, (FAR + E0) / 2],
+    [FAR * 2, FAR - E0, 0, -(FAR + E0) / 2],
+    [FAR - E0, E0 * 2, (FAR + E0) / 2, 0],
+    [FAR - E0, E0 * 2, -(FAR + E0) / 2, 0],
+  ]) {
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(w, d), apronMat);
+    strip.rotation.x = -Math.PI / 2;
+    strip.position.set(x, rimY - 0.5, z);
+    scene.add(strip);
+  }
+  if (terrain.water !== null) {
+    const E = terrain.extent;
+    const water = new THREE.Mesh(
+      new THREE.PlaneGeometry(E * 2, E * 2),
+      new THREE.MeshPhongMaterial({ color: new THREE.Color(0x24414f).lerp(new THREE.Color(sk.top), 0.2), specular: 0x55606a, shininess: 60, transparent: true, opacity: 0.86, depthWrite: false }),
+    );
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = terrain.water;
+    water.renderOrder = 1;
+    scene.add(water);
+  }
 
   // distant mountains ring the field
   const mGeo = new THREE.ConeGeometry(1, 1, 5, 1);
@@ -161,7 +227,7 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
     const a = (i / 46) * 6.28 + rng.range(-0.05, 0.05),
       r = def.half + rng.range(110, 260);
     const h = rng.range(50, 130);
-    pv.set(Math.sin(a) * r, h / 2 - 4, Math.cos(a) * r);
+    pv.set(Math.sin(a) * r, h / 2 - 4 + rimY, Math.cos(a) * r);
     q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.range(0, 6.28));
     sv.set(rng.range(60, 120), h, rng.range(60, 120));
     mountains.setMatrixAt(i, m4.compose(pv, q, sv));
@@ -195,7 +261,9 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
       if (!clear(x, z) || (def.obstacles ?? []).every((o) => Math.hypot(o.x - x, o.z - z) > 0.1)) continue;
     }
     const s = rng.range(0.8, 1.7);
-    pv.set(x, 0, z);
+    // no trees in the river
+    if (terrain.water !== null && gy(x, z) < terrain.water + 0.3) continue;
+    pv.set(x, gy(x, z) - 0.15, z);
     q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.range(0, 6.28));
     sv.set(s, s * rng.range(0.9, 1.3), s);
     m4.compose(pv, q, sv);
@@ -208,7 +276,7 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
   for (const o of def.obstacles ?? []) {
     if (tn >= NT) break;
     const s = o.r * 1.1;
-    pv.set(o.x, 0, o.z);
+    pv.set(o.x, gy(o.x, o.z) - 0.15, o.z);
     q.identity();
     sv.set(s, s * 1.2, s);
     m4.compose(pv, q, sv);
@@ -236,6 +304,8 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
   const clothMat = new THREE.MeshLambertMaterial({ color: 0xece4cf, side: THREE.DoubleSide });
   def.bases.forEach((b) => {
     const flags: THREE.Mesh[] = [];
+    // camps stand on levelled ground
+    const by = gy(b.x, b.z);
     const R = b.main ? 14 : 11;
     const segs = 14;
     for (let i = 0; i < segs; i++) {
@@ -249,15 +319,15 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
         z1 = b.z + Math.cos(a1) * R;
       const len = Math.hypot(x1 - x0, z1 - z0);
       const cloth = new THREE.Mesh(new THREE.PlaneGeometry(len, 1.7), clothMat);
-      cloth.position.set((x0 + x1) / 2, 1.05, (z0 + z1) / 2);
+      cloth.position.set((x0 + x1) / 2, by + 1.05, (z0 + z1) / 2);
       cloth.rotation.y = Math.atan2(x1 - x0, z1 - z0) + Math.PI / 2;
       cloth.castShadow = true;
       scene.add(cloth);
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2, 5), woodMat);
-      post.position.set(x0, 1.1, z0);
+      post.position.set(x0, by + 1.1, z0);
       scene.add(post);
       const post2 = post.clone();
-      post2.position.set(x1, 1.1, z1);
+      post2.position.set(x1, by + 1.1, z1);
       scene.add(post2);
     }
     const nFlags = b.main ? 10 : 6;
@@ -265,10 +335,10 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
       const a = (i / nFlags) * 6.28 + 0.3,
         r = R + 1.2;
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 6, 5), woodMat);
-      pole.position.set(b.x + Math.sin(a) * r, 3, b.z + Math.cos(a) * r);
+      pole.position.set(b.x + Math.sin(a) * r, by + 3, b.z + Math.cos(a) * r);
       scene.add(pole);
       const f = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3.2), new THREE.MeshLambertMaterial({ map: flagTex(b.team), side: THREE.DoubleSide }));
-      f.position.set(pole.position.x + Math.cos(a) * 0.6, 4.3, pole.position.z - Math.sin(a) * 0.6);
+      f.position.set(pole.position.x + Math.cos(a) * 0.6, by + 4.3, pole.position.z - Math.sin(a) * 0.6);
       f.rotation.y = a;
       f.castShadow = true;
       f.userData.phase = rng.range(0, 6);
@@ -297,7 +367,7 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
     roof.rotation.y = Math.PI / 4;
     roof.castShadow = true;
     tower.add(roof);
-    tower.position.set(b.x + R * 0.55, 0, b.z - R * 0.55);
+    tower.position.set(b.x + R * 0.55, by, b.z - R * 0.55);
     scene.add(tower);
     baseFlags.push(flags);
   });
@@ -324,7 +394,7 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
   if (def.sky === 'night' || def.sky === 'dusk')
     for (const b of def.bases) {
       const l = new THREE.PointLight(0xff8a3a, def.sky === 'night' ? 60 : 30, 40, 1.6);
-      l.position.set(b.x, 4, b.z);
+      l.position.set(b.x, gy(b.x, b.z) + 4, b.z);
       scene.add(l);
     }
 
@@ -344,7 +414,7 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
         if (wo[i * 3 + 1] < 0) wo[i * 3 + 1] += 22;
         if (wo[i * 3] > 28) wo[i * 3] -= 56;
         const x = cam.x + wo[i * 3],
-          y = wo[i * 3 + 1],
+          y = cam.y - 8 + wo[i * 3 + 1],
           z = cam.z + wo[i * 3 + 2];
         wp[i * 6] = x;
         wp[i * 6 + 1] = y;
