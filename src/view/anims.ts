@@ -38,8 +38,8 @@ export const STANCE: Record<string, PoseSpec> = {
     lL: [30, 10, 26],
   },
 };
-const stanceOf = (w: WeaponKind): PoseSpec => (w === 'naginata' || w === 'gun' ? STANCE.yari : w === 'odachi' || w === 'kanabo' ? STANCE.great : (STANCE[w] ?? STANCE.katana));
-const twoHanded = (w: WeaponKind) => w === 'yari' || w === 'naginata' || w === 'odachi' || w === 'kanabo' || w === 'gun';
+const stanceOf = (w: WeaponKind): PoseSpec => (w === 'naginata' || w === 'gun' || w === 'bo' ? STANCE.yari : w === 'odachi' || w === 'kanabo' || w === 'masakari' ? STANCE.great : (STANCE[w] ?? STANCE.katana));
+const twoHanded = (w: WeaponKind) => w === 'yari' || w === 'naginata' || w === 'odachi' || w === 'kanabo' || w === 'gun' || w === 'masakari' || w === 'bo';
 const thrusty = (w: WeaponKind) => w === 'yari' || w === 'gun';
 
 /** Second hand follows the weapon arm so polearms look gripped. */

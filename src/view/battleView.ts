@@ -12,6 +12,7 @@ import { airPose, clipFor, dodgePose, ridePose, downPose, getupPose, guardPose, 
 import { Crowd, horseGeometry } from './crowd';
 import { Fx, Trail } from './fx';
 import { Grass } from './grass';
+import { CastleView } from './castleView';
 import { Pose } from './pose';
 import { Rig } from './rig';
 import { buildStage, recolorBase, type Stage } from './scene';
@@ -62,6 +63,7 @@ export class BattleView {
   hud: Hud;
   rigs: RigView[] = [];
   private grass: Grass | null = null;
+  private castleView: CastleView | null = null;
   teamColors: number[];
   camYaw = 0;
   camPitch = 0.3;
@@ -121,6 +123,10 @@ export class BattleView {
     renderer.toneMappingExposure = scene.userData.exposure ?? 1.05;
     this.crowd = new Crowd(this.teamColors);
     scene.add(this.crowd.group, this.fx.group);
+    if (w.castles.length) {
+      this.castleView = new CastleView(w.castles, (x, z) => w.terrain.height(x, z));
+      scene.add(this.castleView.group);
+    }
     if (opts.grass) {
       this.grass = new Grass(w.def, w.terrain, opts.grass, this.stage.groundTint);
       scene.add(this.grass.mesh);
@@ -292,6 +298,7 @@ export class BattleView {
     this.fx.update(vdt, this.camera);
     this.stage.weather(dt, this.camera.position);
     this.grass?.update(dt, this.camTarget.x, this.camTarget.z);
+    this.castleView?.update(dt);
     this.animateFlags();
 
     const p = this.player;
@@ -652,6 +659,24 @@ export class BattleView {
               au.bigHit();
               au.shot(clamp(1 - d / 80, 0.1, 0.9));
             }
+          }
+          break;
+        }
+        case 'gate': {
+          const d = near(e.x, e.z);
+          if (d > 70) break;
+          if (e.phase === 'hit') {
+            if (d < 40 && Math.random() < 0.5) {
+              fx.sparks(e.x, 2.2, e.z, 5, 0x8a6a48, 6);
+              au.block();
+            }
+          } else {
+            fx.flash(e.x, 2.5, e.z, 8, 0xffd9a0, 0.3, false);
+            fx.dust(e.x, e.z, 40, 7);
+            fx.sparks(e.x, 2, e.z, 30, 0x8a6a48, 10);
+            au.bigHit();
+            au.taiko(1);
+            if (d < 40) this.trauma = Math.min(1, this.trauma + 0.5);
           }
           break;
         }

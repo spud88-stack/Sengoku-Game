@@ -63,7 +63,7 @@ export const ROSTER = Object.keys(OFFICERS);
 
 /** Stand-in officers used to fill out armies. */
 const GENERIC_NAMES = ['Kuroda', 'Yamagata', 'Baba', 'Naito', 'Kosaka', 'Sakai', 'Ii', 'Sakakibara', 'Shibata', 'Niwa', 'Takigawa', 'Katakura', 'Oniniwa', 'Rusu'];
-const GENERIC_WEAPONS: WeaponKind[] = ['yari', 'katana', 'naginata', 'katana', 'yari', 'odachi'];
+const GENERIC_WEAPONS: WeaponKind[] = ['yari', 'katana', 'naginata', 'katana', 'yari', 'odachi', 'masakari', 'bo', 'kusarigama', 'tessen', 'katana', 'yari'];
 
 export function genericOfficer(i: number, clan: string): OfficerDef {
   const c = CLANS[clan] ?? CLANS.oda;

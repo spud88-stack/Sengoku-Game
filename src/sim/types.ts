@@ -60,7 +60,7 @@ export interface Moveset {
   super: MoveDef;
 }
 
-export type WeaponKind = 'katana' | 'yari' | 'naginata' | 'dual' | 'odachi' | 'kanabo' | 'gun' | 'bow';
+export type WeaponKind = 'katana' | 'yari' | 'naginata' | 'dual' | 'odachi' | 'kanabo' | 'gun' | 'bow' | 'kusarigama' | 'tessen' | 'masakari' | 'bo';
 
 export type Personality = 'reckless' | 'patient' | 'cunning' | 'honorable';
 
@@ -146,6 +146,7 @@ export type SimEvent =
   | { type: 'join'; id: number }
   | { type: 'defect'; id: number }
   | { type: 'takeover'; from: number; to: number }
+  | { type: 'gate'; phase: 'hit' | 'break'; id: number; x: number; z: number }
   | { type: 'stratagem'; id: string; team: number; x: number; z: number; who: string }
   | { type: 'strike'; phase: 'warn' | 'hit' | 'blaze'; x: number; z: number; r: number; t: number; team: number }
   | { type: 'shot'; id: number; range: number; arc: number }

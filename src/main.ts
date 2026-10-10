@@ -6,6 +6,7 @@ import { BATTLES, buildBattle, dojoBattle } from './data/battles';
 import { OFFICERS, ROSTER } from './data/officers';
 import { officerAI } from './sim/ai';
 import type { BattleDef } from './sim/world';
+import type { WeaponKind } from './sim/types';
 import { World } from './sim/world';
 import { Shell, type BattleResult } from './ui/screens';
 import { Tutorial } from './ui/tutorial';
@@ -279,7 +280,11 @@ function loop(now: number) {
 applySettings();
 if (params.has('dojo')) {
   const id = params.get('officer') ?? 'yukimura';
-  runBattle(dojoBattle(id, params.get('foe') ?? 'masamune', Number(params.get('n') ?? 0)), params.get('diff') ?? 'normal', id, () => {}, params.get('ai') === '1');
+  const def = dojoBattle(id, params.get('foe') ?? 'masamune', Number(params.get('n') ?? 0));
+  // try any weapon in anyone's hands
+  const wp = params.get('weapon') as WeaponKind | null;
+  if (wp) def.officers[0].def = { ...def.officers[0].def, weapon: wp };
+  runBattle(def, params.get('diff') ?? 'normal', id, () => {}, params.get('ai') === '1');
 } else if (params.has('battle') || params.has('officer')) {
   const id = params.get('officer') ?? 'yukimura';
   runBattle(buildBattle(params.get('battle') ?? 'ueda', levelled(OFFICERS[id] ?? OFFICERS.yukimura), Number(params.get('side') ?? 0)), params.get('diff') ?? profile.settings.difficulty, id, () => {});
