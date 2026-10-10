@@ -13,6 +13,7 @@ const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 export class Hud {
   root: HTMLElement;
+  private plate: HTMLElement;
   private hpFill: HTMLElement;
   private hpLag: HTMLElement;
   private spirit: HTMLElement;
@@ -57,7 +58,7 @@ export class Hud {
     this.rageFx = el('vignette ragefx', '', r);
     this.flashEl = el('flash', '', r);
 
-    const plate = el('panel plate', `<div class="name">${player.def.name}</div><div class="title">${player.def.title}</div>`, r);
+    const plate = (this.plate = el('panel plate', `<div class="name"></div><div class="title"></div>`, r));
     const hp = el('bar hp', '<i class="lag"></i><i class="fill"></i>', plate);
     this.hpLag = hp.children[0] as HTMLElement;
     this.hpFill = hp.children[1] as HTMLElement;
@@ -93,7 +94,14 @@ export class Hud {
     this.debug = el('panel debug', '', r);
     this.hint = el('panel hint', 'WASD move · Mouse look · LMB/J light · RMB/K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on', r);
     setTimeout(() => (this.hint.style.opacity = '0'), 14000);
-    this.lastHp = player.hp;
+    this.setPlayer(player);
+  }
+
+  /** Point the nameplate at a different officer, when command passes to someone else. */
+  setPlayer(f: Fighter) {
+    (this.plate.querySelector('.name') as HTMLElement).textContent = f.def.name;
+    (this.plate.querySelector('.title') as HTMLElement).textContent = f.def.title;
+    this.lastHp = f.hp;
   }
 
   dispose() {

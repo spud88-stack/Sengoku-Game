@@ -145,5 +145,6 @@ export type SimEvent =
   | { type: 'banner'; title: string; sub: string; good: boolean }
   | { type: 'join'; id: number }
   | { type: 'defect'; id: number }
+  | { type: 'takeover'; from: number; to: number }
   | { type: 'shot'; id: number; range: number; arc: number }
   | { type: 'end'; winner: number; reason: string };

@@ -82,10 +82,18 @@ function attract() {
 }
 
 /** Play a battle and report how it went. */
-function runBattle(def: BattleDef, difficulty: string, officerId: string, done: (r: BattleResult, w: World) => void, ai = true) {
+function runBattle(def: BattleDef, difficulty: string, officerId: string, done: (r: BattleResult, w: World) => void, ai = true, successors = 0) {
   shell.close();
   const world = new World(def, difficulty, (Math.random() * 1e9) | 0, ai ? officerAI : null);
+  world.fightOn = profile.settings.fightOn;
+  // fresh officers from the roster, for when nobody on the field is left to take over
+  const present = new Set(def.officers.map((o) => o.def.id));
+  world.successors = ROSTER.filter((id) => !present.has(id))
+    .sort(() => Math.random() - 0.5)
+    .slice(0, successors)
+    .map((id) => levelled(OFFICERS[id]));
   const v = new BattleView(renderer, world, input, audio, ui, viewOpts());
+  if (params.get('auto') === '1') v.onTakeover = (f) => (f.controller = officerAI);
   setView(v);
   inBattle = true;
   battleOfficer = officerId;
@@ -147,7 +155,7 @@ const shell: Shell = new Shell(ui, {
             shell.freeBattle(c.officer, Math.max(0, BATTLES.findIndex((b) => b.id === c.battle)));
           }),
         );
-      }),
+      }, true, 2),
     );
   },
   startDojo(officer) {

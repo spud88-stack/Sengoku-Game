@@ -78,6 +78,9 @@ export class BattleView {
   private lockRing: THREE.Mesh;
   private player: Fighter;
   onEnd: ((winner: number, reason: string) => void) | null = null;
+  /** called when command passes to another officer, so the host can swap in its own controller */
+  onTakeover: ((f: Fighter) => void) | null = null;
+  private pendingTakeover: { f: Fighter; t: number } | null = null;
   simMs = 0;
 
   constructor(
@@ -255,6 +258,11 @@ export class BattleView {
     this.time += sdt;
 
     this.handleEvents();
+    if (this.pendingTakeover && !this.paused && (this.pendingTakeover.t -= rawDt) <= 0) {
+      const nf = this.pendingTakeover.f;
+      this.pendingTakeover = null;
+      this.takeOver(nf);
+    }
     const vdt = frozen ? 0 : sdt;
     this.updateRigs(alpha, vdt);
     this.crowd.update(w, alpha, vdt);
@@ -267,6 +275,28 @@ export class BattleView {
     this.hud.update(w, p, p.lock ?? this.nearestThreat(), dt);
     if (this.debugOn && !this.opts.attract) this.drawDebug();
     this.renderer.render(this.stage.scene, this.camera);
+  }
+
+  /** The player now controls `nf`. */
+  private takeOver(nf: Fighter) {
+    this.player = nf;
+    if (!this.opts.attract) nf.controller = (f) => this.playerControl(f);
+    this.onTakeover?.(nf);
+    const rv = this.rigs.find((x) => x.f === nf);
+    if (rv?.plate) {
+      this.stage.scene.remove(rv.plate);
+      rv.plate.material.map?.dispose();
+      rv.plate.material.dispose();
+      rv.plate = null;
+    }
+    for (const x of this.rigs) x.trail.color.set(this.trailColor(x.f));
+    this.hud.setPlayer(nf);
+    this.hud.showCallout('Command Passes', `${nf.def.name} fights on`);
+    this.hud.flash(0.5);
+    this.audio.taiko(1);
+    this.camYaw = nf.face;
+    this.camTarget.set(nf.x, 1.6 + nf.y, nf.z);
+    this.input.clear();
   }
 
   private nearestThreat(): Fighter | null {
@@ -488,6 +518,12 @@ export class BattleView {
           fx.dust(f.x, f.z, 3, 2, 0xb0b0b0);
           au.shot(clamp(1.2 - near(f.x, f.z) / 50, 0.15, 1));
           if (f.isPlayer) this.trauma = Math.min(1, this.trauma + 0.22);
+          break;
+        }
+        case 'takeover': {
+          // linger on the fallen officer through the slow motion, then cut to whoever fights on
+          const nf = w.fighters.find((o) => o.id === e.to);
+          if (nf) this.pendingTakeover = { f: nf, t: 2.2 };
           break;
         }
         case 'end':

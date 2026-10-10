@@ -186,6 +186,11 @@ export class World {
   hitstop = 0;
   slowmo = 0;
   ended: { winner: number; reason: string } | null = null;
+  /** when the player's officer falls in a field battle, command passes to another officer instead of ending it */
+  fightOn = false;
+  /** fresh officers who can ride in when no ally is left standing to take over */
+  successors: OfficerDef[] = [];
+  takeovers = 0;
 
   private uid = 1;
   private gridN: number;
@@ -681,8 +686,35 @@ export class World {
     for (const o of this.fighters) if (o.lock === f) o.lock = null;
     if (!this.ended) {
       if (f.isCommander) this.end(1 - f.team, `${f.def.name} has been defeated`);
-      else if (f.isPlayer) this.end(1 - f.team, `${f.def.name} has fallen`);
+      else if (f.isPlayer && !this.passCommand(f)) this.end(1 - f.team, `${f.def.name} has fallen`);
     }
+  }
+
+  /** The player's officer is down: hand control to an ally still standing, or call up a fresh officer. */
+  private passCommand(fallen: Fighter): boolean {
+    if (!this.fightOn || !this.bases.length) return false;
+    const allies = this.fighters.filter((o) => o.team === fallen.team && !o.dead && o !== fallen);
+    const officers = allies.filter((o) => !o.isCommander);
+    let next = officers.length ? this.rng.pick(officers) : null;
+    const camp = this.nearestBase(fallen.x, fallen.z, (b) => b.team === fallen.team);
+    if (!next && camp && this.successors.length) {
+      const def = this.successors.splice(this.rng.int(0, this.successors.length - 1), 1)[0];
+      next = this.addOfficer(def, fallen.team, camp.x + this.rng.range(-3, 3), camp.z + this.rng.range(-3, 3), 10);
+      this.events.push({ type: 'join', id: next.id });
+    }
+    // the commander is the last resort: losing them loses the battle
+    next ??= allies.find((o) => o.isCommander) ?? null;
+    if (!next) return false;
+    fallen.isPlayer = false;
+    // until the view hands it to the player, the officer keeps fighting on its own
+    next.isPlayer = true;
+    next.lock = null;
+    this.player = next;
+    this.takeovers++;
+    this.log(`${next.def.name} takes up the fight!`, next.team, 'good');
+    if (next.def.lines?.enter) this.say(next, next.def.lines.enter);
+    this.events.push({ type: 'takeover', from: fallen.id, to: next.id });
+    return true;
   }
 
   end(winner: number, reason: string) {

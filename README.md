@@ -53,6 +53,8 @@ Light attacks chain into a string. Pressing Heavy at any point in the string end
 
 Bases fall when their garrison is cut down and no defending officer is standing inside. A battle is won by defeating the enemy commander, taking their main camp, or routing their army.
 
+If your officer falls in a field battle, command passes to another officer on your side: first an ally still standing, then (in Free Mode) one of two random officers who ride in from your nearest camp, and last of all your commander. The battle is lost when the commander falls. Settings can switch this off so that your officer's fall ends the battle.
+
 ## For developers
 
 - `npm run sim -- 600 normal 1 --battle=sekigahara --log` runs a battle headless with every officer on AI.

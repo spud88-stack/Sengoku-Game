@@ -543,6 +543,7 @@ export class Shell {
           slider('Screen shake', 'shake', 0, 1.5),
           cycle('Blood', () => s.blood, [[1, 'Full'], [0.5, 'Reduced'], [0, 'Off']], (v) => (s.blood = v)),
           cycle('Invert camera Y', () => s.invertY, [[false, 'Off'], [true, 'On']], (v) => (s.invertY = v)),
+          cycle('When your officer falls', () => s.fightOn, [[true, 'Fight on as another'], [false, 'The battle is lost']], (v) => (s.fightOn = v)),
           cycle('Default difficulty', () => s.difficulty, Object.entries(DIFFICULTY).map(([k, v]) => [k, v.name] as [string, string]), (v) => (s.difficulty = v)),
         ),
         h('p.keys', { html: '<b>Keyboard</b> WASD move · Mouse or arrows look · LMB / J light · RMB / K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on · E mount · M map · Esc pause<br><b>Gamepad</b> Stick move · X light · Y heavy · A jump · B Ougi · RB dodge · LB guard · Triggers Shura · R3 lock-on' }),
