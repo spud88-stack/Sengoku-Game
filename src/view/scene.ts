@@ -1,0 +1,379 @@
+import * as THREE from 'three';
+import { Rng } from '../core/math';
+import type { BattleDef } from '../sim/world';
+
+export interface Stage {
+  scene: THREE.Scene;
+  sun: THREE.DirectionalLight;
+  /** per-base banner meshes so captures can recolour them */
+  baseFlags: THREE.Mesh[][];
+  /** advance rain or snow around the camera */
+  weather(dt: number, cam: THREE.Vector3): void;
+  dispose(): void;
+}
+
+const SKIES: Record<string, { top: number; hor: number; sun: number; sunI: number; hemiSky: number; hemiGround: number; hemiI: number; fog: [number, number]; ground: number; exposure: number }> = {
+  day: { top: 0x6f8fb0, hor: 0xd9c9a8, sun: 0xfff0d2, sunI: 2.1, hemiSky: 0xcfe0ff, hemiGround: 0x6b5a3a, hemiI: 0.95, fog: [70, 300], ground: 0xffffff, exposure: 1.05 },
+  dusk: { top: 0x4a4a80, hor: 0xf0a060, sun: 0xffa860, sunI: 2.2, hemiSky: 0xffc8a0, hemiGround: 0x5a4030, hemiI: 0.8, fog: [60, 280], ground: 0xffd8b8, exposure: 1.05 },
+  night: { top: 0x070b1c, hor: 0x27324f, sun: 0x9db8ff, sunI: 1.15, hemiSky: 0x6f86c8, hemiGround: 0x20202c, hemiI: 0.85, fog: [40, 190], ground: 0x8f9cc0, exposure: 1.15 },
+  rain: { top: 0x47525c, hor: 0x8e989c, sun: 0xd4dde6, sunI: 1.2, hemiSky: 0xc0ccd8, hemiGround: 0x4a4a40, hemiI: 1.0, fog: [35, 200], ground: 0xb8c0b8, exposure: 1.0 },
+  snow: { top: 0x8a98a8, hor: 0xdfe6ea, sun: 0xffffff, sunI: 1.5, hemiSky: 0xe8f0ff, hemiGround: 0x8a8a90, hemiI: 1.1, fog: [40, 220], ground: 0xf4f6ff, exposure: 1.0 },
+};
+
+function groundTexture(def: BattleDef, rng: Rng): THREE.CanvasTexture {
+  const N = 2048;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d')!;
+  const toPx = (v: number) => ((v + def.half) / (def.half * 2)) * N;
+  g.fillStyle = '#5d6b3a';
+  g.fillRect(0, 0, N, N);
+  // mottled grass, laid down like washes of ink
+  for (let i = 0; i < 2600; i++) {
+    const x = rng.next() * N,
+      y = rng.next() * N,
+      r = 20 + rng.next() * 90;
+    const shade = rng.next();
+    g.fillStyle = shade < 0.4 ? 'rgba(74,92,44,0.16)' : shade < 0.75 ? 'rgba(120,128,70,0.13)' : 'rgba(140,124,80,0.12)';
+    g.beginPath();
+    g.ellipse(x, y, r, r * (0.4 + rng.next() * 0.6), rng.next() * 3.14, 0, 6.28);
+    g.fill();
+  }
+  // dirt roads between neighbouring bases
+  g.lineCap = 'round';
+  const bs = def.bases;
+  for (let i = 0; i < bs.length; i++)
+    for (let j = i + 1; j < bs.length; j++) {
+      const d = Math.hypot(bs[i].x - bs[j].x, bs[i].z - bs[j].z);
+      if (d > def.half * 0.95) continue;
+      for (const [wid, col] of [
+        [34, 'rgba(120,100,70,0.35)'],
+        [20, 'rgba(146,122,86,0.55)'],
+        [9, 'rgba(165,142,104,0.5)'],
+      ] as const) {
+        g.strokeStyle = col;
+        g.lineWidth = wid;
+        g.beginPath();
+        g.moveTo(toPx(bs[i].x), toPx(bs[i].z));
+        const mx = (bs[i].x + bs[j].x) / 2 + rng.range(-8, 8),
+          mz = (bs[i].z + bs[j].z) / 2 + rng.range(-8, 8);
+        g.quadraticCurveTo(toPx(mx), toPx(mz), toPx(bs[j].x), toPx(bs[j].z));
+        g.stroke();
+      }
+    }
+  // trampled clearings at each camp
+  for (const b of bs) {
+    const gr = g.createRadialGradient(toPx(b.x), toPx(b.z), 0, toPx(b.x), toPx(b.z), toPx(-def.half + 15));
+    gr.addColorStop(0, 'rgba(160,136,98,0.85)');
+    gr.addColorStop(0.7, 'rgba(150,128,90,0.5)');
+    gr.addColorStop(1, 'rgba(150,128,90,0)');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.arc(toPx(b.x), toPx(b.z), toPx(-def.half + 15), 0, 6.28);
+    g.fill();
+  }
+  // grain
+  for (let i = 0; i < 26000; i++) {
+    g.fillStyle = rng.next() < 0.5 ? 'rgba(30,40,20,0.10)' : 'rgba(220,210,160,0.07)';
+    g.fillRect(rng.next() * N, rng.next() * N, 2 + rng.next() * 3, 2 + rng.next() * 3);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+function monTexture(text: string, bg: string, fg: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = bg;
+  g.fillRect(0, 0, 128, 256);
+  g.fillStyle = fg;
+  g.fillRect(0, 22, 128, 10);
+  g.fillRect(0, 224, 128, 10);
+  g.font = '700 92px "Hiragino Mincho ProN","Yu Mincho","Songti SC",serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, 64, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+export function buildStage(def: BattleDef, teamColors: number[], teamMons: string[]): Stage {
+  const rng = new Rng(77);
+  const scene = new THREE.Scene();
+  const sk = SKIES[def.sky ?? 'day'] ?? SKIES.day;
+  const skyTop = new THREE.Color(sk.top),
+    horizon = new THREE.Color(sk.hor);
+  scene.background = horizon;
+  scene.fog = new THREE.Fog(horizon, sk.fog[0], sk.fog[1]);
+  scene.userData.exposure = sk.exposure;
+
+  // sky dome with a painted gradient
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(900, 24, 12),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: { top: { value: skyTop }, hor: { value: horizon } },
+      vertexShader: 'varying vec3 p; void main(){ p = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: 'varying vec3 p; uniform vec3 top; uniform vec3 hor; void main(){ float h = clamp(normalize(p).y*2.2, 0.0, 1.0); gl_FragColor = vec4(mix(hor, top, pow(h,0.7)), 1.0); }',
+    }),
+  );
+  scene.add(sky);
+
+  scene.add(new THREE.HemisphereLight(sk.hemiSky, sk.hemiGround, sk.hemiI));
+  const sun = new THREE.DirectionalLight(sk.sun, sk.sunI);
+  sun.position.set(40, 70, 25);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  const sc = sun.shadow.camera;
+  sc.left = sc.bottom = -42;
+  sc.right = sc.top = 42;
+  sc.near = 10;
+  sc.far = 200;
+  sun.shadow.bias = -0.0006;
+  sun.shadow.normalBias = 0.03;
+  scene.add(sun, sun.target);
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(def.half * 2, def.half * 2), new THREE.MeshLambertMaterial({ map: groundTexture(def, rng), color: sk.ground }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshLambertMaterial({ color: new THREE.Color(0x5d6b3a).multiply(new THREE.Color(sk.ground)) }));
+  apron.rotation.x = -Math.PI / 2;
+  apron.position.y = -0.05;
+  scene.add(apron);
+
+  // distant mountains ring the field
+  const mGeo = new THREE.ConeGeometry(1, 1, 5, 1);
+  const mMat = new THREE.MeshLambertMaterial({ color: 0x566070, flatShading: true });
+  const mountains = new THREE.InstancedMesh(mGeo, mMat, 46);
+  const m4 = new THREE.Matrix4(),
+    q = new THREE.Quaternion(),
+    sv = new THREE.Vector3(),
+    pv = new THREE.Vector3();
+  for (let i = 0; i < 46; i++) {
+    const a = (i / 46) * 6.28 + rng.range(-0.05, 0.05),
+      r = def.half + rng.range(110, 260);
+    const h = rng.range(50, 130);
+    pv.set(Math.sin(a) * r, h / 2 - 4, Math.cos(a) * r);
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.range(0, 6.28));
+    sv.set(rng.range(60, 120), h, rng.range(60, 120));
+    mountains.setMatrixAt(i, m4.compose(pv, q, sv));
+  }
+  scene.add(mountains);
+
+  // trees and rocks: dense at the edges, sparse in the field, never on a camp
+  const clear = (x: number, z: number) => def.bases.every((b) => Math.hypot(b.x - x, b.z - z) > 20);
+  const trunkG = new THREE.CylinderGeometry(0.18, 0.28, 2.2, 5);
+  trunkG.translate(0, 1.1, 0);
+  const leafG = new THREE.ConeGeometry(1.7, 4.4, 6);
+  leafG.translate(0, 4.2, 0);
+  const NT = 420;
+  const trunks = new THREE.InstancedMesh(trunkG, new THREE.MeshLambertMaterial({ color: 0x3c2a1c, flatShading: true }), NT);
+  const leaves = new THREE.InstancedMesh(leafG, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), NT);
+  leaves.castShadow = true;
+  const col = new THREE.Color();
+  let tn = 0;
+  for (let i = 0; i < NT * 3 && tn < NT; i++) {
+    const edge = rng.chance(0.8);
+    let x: number, z: number;
+    if (edge) {
+      const a = rng.range(0, 6.28),
+        r = def.half + rng.range(2, 70);
+      x = Math.sin(a) * r * 1.1;
+      z = Math.cos(a) * r * 1.1;
+      if (Math.abs(x) < def.half && Math.abs(z) < def.half) continue;
+    } else {
+      x = rng.range(-def.half, def.half);
+      z = rng.range(-def.half, def.half);
+      if (!clear(x, z) || (def.obstacles ?? []).every((o) => Math.hypot(o.x - x, o.z - z) > 0.1)) continue;
+    }
+    const s = rng.range(0.8, 1.7);
+    pv.set(x, 0, z);
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.range(0, 6.28));
+    sv.set(s, s * rng.range(0.9, 1.3), s);
+    m4.compose(pv, q, sv);
+    trunks.setMatrixAt(tn, m4);
+    leaves.setMatrixAt(tn, m4);
+    leaves.setColorAt(tn, col.setHSL(0.24 + rng.range(-0.05, 0.04), 0.4, 0.2 + rng.range(0, 0.1)));
+    tn++;
+  }
+  // obstacle trees inside the field
+  for (const o of def.obstacles ?? []) {
+    if (tn >= NT) break;
+    const s = o.r * 1.1;
+    pv.set(o.x, 0, o.z);
+    q.identity();
+    sv.set(s, s * 1.2, s);
+    m4.compose(pv, q, sv);
+    trunks.setMatrixAt(tn, m4);
+    leaves.setMatrixAt(tn, m4);
+    leaves.setColorAt(tn, col.setHSL(0.26, 0.42, 0.24));
+    tn++;
+  }
+  trunks.count = leaves.count = tn;
+  scene.add(trunks, leaves);
+
+  // camps: curtain walls, banners and a watch platform
+  const baseFlags: THREE.Mesh[][] = [];
+  const texCache = new Map<number, THREE.Texture>();
+  const flagTex = (team: number) => {
+    let t = texCache.get(team);
+    if (!t) {
+      const c = team < 0 ? '#8a8578' : '#' + new THREE.Color(teamColors[team]).getHexString();
+      t = monTexture(team < 0 ? '' : teamMons[team], c, '#f4ead2');
+      texCache.set(team, t);
+    }
+    return t;
+  };
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x5a4028, flatShading: true });
+  const clothMat = new THREE.MeshLambertMaterial({ color: 0xece4cf, side: THREE.DoubleSide });
+  def.bases.forEach((b) => {
+    const flags: THREE.Mesh[] = [];
+    const R = b.main ? 14 : 11;
+    const segs = 14;
+    for (let i = 0; i < segs; i++) {
+      // leave four gates
+      if (i % (segs / 2) === 0 || i % (segs / 2) === 3) continue;
+      const a0 = (i / segs) * 6.28,
+        a1 = ((i + 1) / segs) * 6.28;
+      const x0 = b.x + Math.sin(a0) * R,
+        z0 = b.z + Math.cos(a0) * R,
+        x1 = b.x + Math.sin(a1) * R,
+        z1 = b.z + Math.cos(a1) * R;
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const cloth = new THREE.Mesh(new THREE.PlaneGeometry(len, 1.7), clothMat);
+      cloth.position.set((x0 + x1) / 2, 1.05, (z0 + z1) / 2);
+      cloth.rotation.y = Math.atan2(x1 - x0, z1 - z0) + Math.PI / 2;
+      cloth.castShadow = true;
+      scene.add(cloth);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2, 5), woodMat);
+      post.position.set(x0, 1.1, z0);
+      scene.add(post);
+      const post2 = post.clone();
+      post2.position.set(x1, 1.1, z1);
+      scene.add(post2);
+    }
+    const nFlags = b.main ? 10 : 6;
+    for (let i = 0; i < nFlags; i++) {
+      const a = (i / nFlags) * 6.28 + 0.3,
+        r = R + 1.2;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 6, 5), woodMat);
+      pole.position.set(b.x + Math.sin(a) * r, 3, b.z + Math.cos(a) * r);
+      scene.add(pole);
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3.2), new THREE.MeshLambertMaterial({ map: flagTex(b.team), side: THREE.DoubleSide }));
+      f.position.set(pole.position.x + Math.cos(a) * 0.6, 4.3, pole.position.z - Math.sin(a) * 0.6);
+      f.rotation.y = a;
+      f.castShadow = true;
+      f.userData.phase = rng.range(0, 6);
+      scene.add(f);
+      flags.push(f);
+    }
+    // watch platform
+    const tower = new THREE.Group();
+    for (const [dx, dz] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 6, 5), woodMat);
+      leg.position.set(dx * 1.1, 3, dz * 1.1);
+      leg.castShadow = true;
+      tower.add(leg);
+    }
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.2, 2.8), woodMat);
+    deck.position.y = 5;
+    deck.castShadow = true;
+    tower.add(deck);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.3, 4), new THREE.MeshLambertMaterial({ color: 0x2b2b33, flatShading: true }));
+    roof.position.y = 7.4;
+    roof.rotation.y = Math.PI / 4;
+    roof.castShadow = true;
+    tower.add(roof);
+    tower.position.set(b.x + R * 0.55, 0, b.z - R * 0.55);
+    scene.add(tower);
+    baseFlags.push(flags);
+  });
+
+  // rain and snow are a box of streaks that follows the camera
+  let weatherMesh: THREE.LineSegments | null = null;
+  const wet = def.sky === 'rain' || def.sky === 'snow';
+  const WN = 900;
+  const wp = new Float32Array(WN * 6);
+  const wo = new Float32Array(WN * 3);
+  if (wet) {
+    for (let i = 0; i < WN; i++) {
+      wo[i * 3] = rng.range(-28, 28);
+      wo[i * 3 + 1] = rng.range(0, 22);
+      wo[i * 3 + 2] = rng.range(-28, 28);
+    }
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.BufferAttribute(wp, 3).setUsage(THREE.DynamicDrawUsage));
+    weatherMesh = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: def.sky === 'snow' ? 0xffffff : 0xc8d4e0, transparent: true, opacity: def.sky === 'snow' ? 0.8 : 0.35, fog: false }));
+    weatherMesh.frustumCulled = false;
+    scene.add(weatherMesh);
+  }
+  // torches give night battles something warm to fight around
+  if (def.sky === 'night' || def.sky === 'dusk')
+    for (const b of def.bases) {
+      const l = new THREE.PointLight(0xff8a3a, def.sky === 'night' ? 60 : 30, 40, 1.6);
+      l.position.set(b.x, 4, b.z);
+      scene.add(l);
+    }
+
+  const stage: Stage = {
+    scene,
+    sun,
+    baseFlags,
+    weather(dt, cam) {
+      if (!weatherMesh) return;
+      const snow = def.sky === 'snow';
+      const fall = snow ? 2.2 : 26,
+        len = snow ? 0.06 : 0.7,
+        drift = snow ? 0.8 : 3;
+      for (let i = 0; i < WN; i++) {
+        wo[i * 3 + 1] -= fall * dt;
+        wo[i * 3] += drift * dt;
+        if (wo[i * 3 + 1] < 0) wo[i * 3 + 1] += 22;
+        if (wo[i * 3] > 28) wo[i * 3] -= 56;
+        const x = cam.x + wo[i * 3],
+          y = wo[i * 3 + 1],
+          z = cam.z + wo[i * 3 + 2];
+        wp[i * 6] = x;
+        wp[i * 6 + 1] = y;
+        wp[i * 6 + 2] = z;
+        wp[i * 6 + 3] = x + drift * 0.03;
+        wp[i * 6 + 4] = y + len;
+        wp[i * 6 + 5] = z;
+      }
+      weatherMesh.geometry.attributes.position.needsUpdate = true;
+    },
+    dispose() {
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose?.();
+        const mm = m.material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(mm)) mm.forEach((x) => x.dispose());
+        else mm?.dispose?.();
+      });
+    },
+  };
+  (stage as any).flagTex = flagTex;
+  return stage;
+}
+
+export function recolorBase(stage: Stage, base: number, team: number) {
+  const tex = (stage as any).flagTex(team) as THREE.Texture;
+  for (const f of stage.baseFlags[base]) {
+    const m = f.material as THREE.MeshLambertMaterial;
+    m.map = tex;
+    m.needsUpdate = true;
+  }
+}
