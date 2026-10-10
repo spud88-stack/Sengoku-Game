@@ -42,6 +42,7 @@ The `index.html` in the repo loads TypeScript source, which only works through V
 | Shura (violet gauge full) | R | Either trigger |
 | Lock on to an officer | Tab / middle mouse | R3 |
 | Mount or dismount | E | L3 |
+| Stratagems | 1 – 4 | D-pad |
 | Battlefield map and pause | M / Esc | Start / Back |
 | Debug overlay | ` (backquote) | |
 
@@ -52,6 +53,15 @@ Keys can be rebound under Settings. Menus work with mouse, arrow keys and Enter,
 Light attacks chain into a string. Pressing Heavy at any point in the string ends it with a different finisher: on its own it breaks guards, after one Light it launches, after two it is a flurry into a stun, after three it clears everything around you, after four it launches and slams. Jump after a launcher to keep the combo going in the air. Dodge cancels the end of most attacks. Filling the gold gauge buys an invulnerable Ougi; the violet gauge buys Shura, a short spell of extra speed and damage.
 
 Bases fall when their garrison is cut down and no defending officer is standing inside. A battle is won by defeating the enemy commander, taking their main camp, or routing their army.
+
+Stratagems cost command points (the diamonds under your bars). You start with one, earn more by holding the field, every 60 KOs, every officer defeated and every camp taken, and can bank up to five:
+
+- **Fire Arrows** (1): a volley of burning arrows lands on the ground just ahead of you.
+- **War Drums** (1): your whole army hits harder and holds firmer for 25 seconds.
+- **Reinforcements** (2): a fresh company runs from your nearest camp to fight at your side.
+- **Sabotage** (2): the nearest enemy camp is set alight; its garrison is halved and its defenders scatter.
+
+The enemy commander has them too. When a red circle appears around you, get out of it.
 
 If your officer falls in a field battle, command passes to another officer on your side: first an ally still standing, then (in Free Mode) one of two random officers who ride in from your nearest camp, and last of all your commander. The battle is lost when the commander falls. Settings can switch this off so that your officer's fall ends the battle.
 

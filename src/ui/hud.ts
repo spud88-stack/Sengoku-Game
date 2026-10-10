@@ -1,6 +1,7 @@
 import type { Fighter } from '../sim/fighter';
 import type { World } from '../sim/world';
 import { TUNE } from '../data/tuning';
+import { STRATS } from '../data/stratagems';
 
 const el = (cls: string, html = '', parent?: HTMLElement) => {
   const d = document.createElement('div');
@@ -41,6 +42,9 @@ export class Hud {
   debug: HTMLElement;
   private hint: HTMLElement;
   private missionEl: HTMLElement;
+  private stratPips: HTMLElement[] = [];
+  private stratCards: HTMLElement[] = [];
+  private drumEl: HTMLElement;
   private lastKo = -1;
   private comboCount = 0;
   maxCombo = 0;
@@ -64,6 +68,19 @@ export class Hud {
     this.hpFill = hp.children[1] as HTMLElement;
     this.spirit = el('bar spirit', '<i></i>', plate);
     this.rage = el('bar rage', '<i></i>', plate);
+
+    // stratagems: command points and the four calls, under the player's bars
+    const strat = el('panel strats', '', r);
+    const pips = el('pips', '<small>COMMAND</small>', strat);
+    for (let i = 0; i < TUNE.strat.max; i++) this.stratPips.push(el('pip', '<i></i>', pips));
+    this.drumEl = el('drum', '陣太鼓', pips);
+    const cards = el('cards', '', strat);
+    const pad = ['↑', '→', '↓', '←'];
+    STRATS.forEach((d, i) => {
+      const c = el('scard', `<span class="key">${i + 1}<em>${pad[i]}</em></span><b>${d.kanji}</b><span class="nm">${d.name}</span><span class="cost">${'◆'.repeat(d.cost)}</span>`, cards);
+      c.title = d.desc;
+      this.stratCards.push(c);
+    });
 
     const mor = el('panel morale', `<div class="row"><span class="l"></span><span>MORALE</span><span class="r"></span></div><div class="track"><i></i></div>`, r);
     this.moraleFill = mor.querySelector('.track i') as HTMLElement;
@@ -92,7 +109,7 @@ export class Hud {
     this.map = mm.querySelector('canvas')!;
     this.mctx = this.map.getContext('2d')!;
     this.debug = el('panel debug', '', r);
-    this.hint = el('panel hint', 'WASD move · Mouse look · LMB/J light · RMB/K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on', r);
+    this.hint = el('panel hint', 'WASD move · Mouse look · LMB/J light · RMB/K heavy · Space jump · Shift dodge · Q guard · F Ougi · R Shura · Tab lock-on · 1–4 stratagems', r);
     setTimeout(() => (this.hint.style.opacity = '0'), 14000);
     this.setPlayer(player);
   }
@@ -138,6 +155,15 @@ export class Hud {
 
   flash(a: number) {
     this.flashA = Math.max(this.flashA, a);
+  }
+
+  /** A stratagem card the player could not afford (or had nowhere to use) shakes. */
+  denied(i: number) {
+    const c = this.stratCards[i];
+    if (!c) return;
+    c.classList.remove('no');
+    void c.offsetWidth;
+    c.classList.add('no');
   }
 
   update(w: World, p: Fighter, target: Fighter | null, dt: number) {
@@ -189,6 +215,11 @@ export class Hud {
     this.moraleFill.style.width = `${(m0 / (m0 + m1 || 1)) * 100}%`;
     this.moraleL.textContent = `${w.def.sides[0]} ${w.alive[0] + w.reserves[0]}`;
     this.moraleR.textContent = `${w.alive[1] + w.reserves[1]} ${w.def.sides[1]}`;
+
+    const cmd = w.command[p.team];
+    this.stratPips.forEach((pip, i) => ((pip.firstChild as HTMLElement).style.transform = `scaleY(${Math.max(0, Math.min(1, cmd - i))})`));
+    STRATS.forEach((d, i) => this.stratCards[i].classList.toggle('ready', cmd >= d.cost));
+    this.drumEl.classList.toggle('on', w.drumT[p.team] > 0);
 
     const ms = w.mission;
     this.missionEl.classList.toggle('on', !!ms);

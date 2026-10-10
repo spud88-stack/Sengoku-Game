@@ -20,6 +20,8 @@ interface P {
   g: number;
   b: number;
   blood: boolean;
+  /** keep full size and brightness to the end (arrows in flight) */
+  hold?: boolean;
 }
 
 /** A pooled set of stretched-quad particles rendered in one draw call. */
@@ -85,12 +87,12 @@ class ParticleLayer {
       if (sp > 0.001) this.dir.multiplyScalar(1 / sp);
       else this.dir.set(0, 1, 0);
       this.q.setFromUnitVectors(ParticleLayer.Z, this.dir);
-      const sz = p.size * (p.blood ? 1 : Math.min(1, k * 2.5));
+      const sz = p.size * (p.blood || p.hold ? 1 : Math.min(1, k * 2.5));
       this.s.set(sz, sz, sz * (1 + sp * p.stretch));
       this.p.set(p.x, p.y, p.z);
       this.m.compose(this.p, this.q, this.s);
       this.mesh.setMatrixAt(n, this.m);
-      const f = p.blood ? 1 : k;
+      const f = p.blood || p.hold ? 1 : k;
       this.mesh.setColorAt(n, this.col.setRGB(p.r * f, p.g * f, p.b * f));
       n++;
     }
@@ -308,7 +310,7 @@ export class Fx {
     }
   }
 
-  private decal(x: number, z: number, size: number) {
+  private decal(x: number, z: number, size: number, shade?: THREE.Color) {
     const k = (Math.random() * 4) | 0;
     const im = this.decals[k];
     const i = this.decalNext[k] % this.decalCap;
@@ -318,7 +320,7 @@ export class Fx {
     this.m.setPosition(x, 0.03 + Math.random() * 0.02, z);
     im.setMatrixAt(i, this.m);
     const d = 0.3 + Math.random() * 0.25;
-    im.setColorAt(i, this.col.setRGB(d, 0.01, 0.015));
+    im.setColorAt(i, shade ?? this.col.setRGB(d, 0.01, 0.015));
     im.count = Math.min(this.decalCap, Math.max(im.count, i + 1));
     im.instanceMatrix.needsUpdate = true;
     if (im.instanceColor) im.instanceColor.needsUpdate = true;
@@ -392,6 +394,52 @@ export class Fx {
       const a = Math.random() * 6.28,
         r = Math.random() * radius;
       this.glow.add({ x: x + Math.cos(a) * r, y: y + Math.random() * 1.6, z: z + Math.sin(a) * r, vx: -Math.sin(a) * 3, vy: 2 + Math.random() * 3, vz: Math.cos(a) * 3, life: 0.5 + Math.random() * 0.4, max: 0.9, size: 0.07, stretch: 0.1, grav: -0.1, drag: 1, r: this.col.r, g: this.col.g, b: this.col.b, blood: false });
+    }
+  }
+
+  /** A volley of burning arrows loosed from behind `from`, arcing over and landing across a circle after `delay` seconds. */
+  fireArrows(x: number, z: number, r: number, delay: number, fromX: number, fromZ: number) {
+    const ax = fromX - x,
+      az = fromZ - z,
+      al = Math.hypot(ax, az) || 1;
+    const grav = 1.6,
+      g = G * grav;
+    for (let i = 0; i < 80; i++) {
+      const a = Math.random() * 6.28,
+        rr = Math.sqrt(Math.random()) * r;
+      const tx = x + Math.cos(a) * rr,
+        tz = z + Math.sin(a) * rr;
+      const t = delay * (0.85 + Math.random() * 0.2);
+      // the archers stand well behind whoever called the volley
+      const back = al + 10 + Math.random() * 12,
+        side = (Math.random() - 0.5) * 14;
+      const sx = x + (ax / al) * back - (az / al) * side,
+        sz = z + (az / al) * back + (ax / al) * side,
+        sy = 1.6;
+      this.glow.add({ x: sx, y: sy, z: sz, vx: (tx - sx) / t, vy: (0.5 * g * t * t - sy) / t, vz: (tz - sz) / t, life: t + 0.05, max: t + 0.05, size: 0.09, stretch: 0.22, grav, drag: 0, r: 1, g: 0.38, b: 0.06, blood: false, hold: true });
+    }
+  }
+
+  /** Flames licking over a burning patch of ground; call each frame while it burns. */
+  burn(x: number, z: number, r: number, intensity: number) {
+    const n = Math.random() < intensity * 3 ? 1 + ((intensity * 2) | 0) : 0;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.28,
+        rr = Math.sqrt(Math.random()) * r;
+      const px = x + Math.cos(a) * rr,
+        pz = z + Math.sin(a) * rr;
+      const hot = Math.random();
+      this.glow.add({ x: px, y: 0.1, z: pz, vx: (Math.random() - 0.5) * 0.8, vy: 2 + Math.random() * 2.5, vz: (Math.random() - 0.5) * 0.8, life: 0.5 + Math.random() * 0.5, max: 1, size: 0.18 + Math.random() * 0.22, stretch: 0.15, grav: -0.05, drag: 1.2, r: 1, g: 0.35 + hot * 0.4, b: 0.08 + hot * 0.1, blood: false });
+    }
+  }
+
+  /** Blackened ground where fire has been. */
+  scorch(x: number, z: number, r: number, n: number) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.28,
+        rr = Math.sqrt(Math.random()) * r;
+      const k = 0.04 + Math.random() * 0.05;
+      this.decal(x + Math.cos(a) * rr, z + Math.sin(a) * rr, 1 + Math.random() * 1.8, this.col.setRGB(k, k * 0.8, k * 0.6));
     }
   }
 

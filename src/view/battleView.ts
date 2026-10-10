@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import type { Audio } from '../core/audio';
-import type { Input } from '../core/input';
+import type { Action, Input } from '../core/input';
 import { angDiff, clamp, damp } from '../core/math';
 import { CLANS } from '../data/officers';
 import { TUNE } from '../data/tuning';
+import { STRATS } from '../data/stratagems';
 import type { Fighter } from '../sim/fighter';
 import type { World } from '../sim/world';
 import { Hud } from '../ui/hud';
@@ -81,6 +82,11 @@ export class BattleView {
   /** called when command passes to another officer, so the host can swap in its own controller */
   onTakeover: ((f: Fighter) => void) | null = null;
   private pendingTakeover: { f: Fighter; t: number } | null = null;
+  /** ground markers where fire arrows are about to land */
+  private warnings: { mesh: THREE.Mesh; t: number; max: number }[] = [];
+  /** patches of burning ground */
+  private burns: { x: number; z: number; r: number; t: number; max: number }[] = [];
+  private warnTex: THREE.Texture | null = null;
   simMs = 0;
 
   constructor(
@@ -202,6 +208,7 @@ export class BattleView {
     it.rage = inp.take('rage');
     it.guard = inp.down('guard');
     it.mount = inp.take('mount');
+    for (let i = 0; i < STRATS.length; i++) if (inp.take(`strat${i + 1}` as Action) && !this.world.useStratagem(f.team, STRATS[i].id, f)) this.hud.denied(i);
     if (inp.take('lock')) {
       if (f.lock) f.lock = null;
       else {
@@ -267,6 +274,7 @@ export class BattleView {
     this.updateRigs(alpha, vdt);
     this.crowd.update(w, alpha, vdt);
     this.updateCamera(alpha, dt, rawDt);
+    this.updateStrikes(vdt);
     this.fx.update(vdt, this.camera);
     this.stage.weather(dt, this.camera.position);
     this.animateFlags();
@@ -275,6 +283,58 @@ export class BattleView {
     this.hud.update(w, p, p.lock ?? this.nearestThreat(), dt);
     if (this.debugOn && !this.opts.attract) this.drawDebug();
     this.renderer.render(this.stage.scene, this.camera);
+  }
+
+  private addWarning(x: number, z: number, r: number, t: number, color: number) {
+    if (!this.warnTex) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const g = c.getContext('2d')!;
+      const grad = g.createRadialGradient(128, 128, 60, 128, 128, 126);
+      grad.addColorStop(0, 'rgba(255,255,255,0.05)');
+      grad.addColorStop(0.85, 'rgba(255,255,255,0.3)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 256, 256);
+      g.strokeStyle = '#fff';
+      g.lineWidth = 6;
+      g.beginPath();
+      g.arc(128, 128, 118, 0, 6.28);
+      g.stroke();
+      this.warnTex = new THREE.CanvasTexture(c);
+    }
+    const geo = new THREE.PlaneGeometry(2 * r, 2 * r);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: this.warnTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    mesh.position.set(x, 0.12, z);
+    mesh.renderOrder = 3;
+    this.stage.scene.add(mesh);
+    this.warnings.push({ mesh, t: t, max: t });
+  }
+
+  private updateStrikes(dt: number) {
+    for (let i = this.warnings.length - 1; i >= 0; i--) {
+      const wv = this.warnings[i];
+      wv.t -= dt;
+      const k = 1 - Math.max(0, wv.t) / wv.max;
+      (wv.mesh.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.65 * Math.abs(Math.sin(this.time * (6 + k * 14)));
+      wv.mesh.scale.setScalar(1.08 - k * 0.08);
+      if (wv.t <= 0) {
+        this.stage.scene.remove(wv.mesh);
+        wv.mesh.geometry.dispose();
+        (wv.mesh.material as THREE.Material).dispose();
+        this.warnings.splice(i, 1);
+      }
+    }
+    if (dt <= 0) return;
+    for (let i = this.burns.length - 1; i >= 0; i--) {
+      const b = this.burns[i];
+      if ((b.t -= dt) <= 0) {
+        this.burns.splice(i, 1);
+        continue;
+      }
+      this.fx.burn(b.x, b.z, b.r, b.t / b.max);
+    }
   }
 
   /** The player now controls `nf`. */
@@ -518,6 +578,47 @@ export class BattleView {
           fx.dust(f.x, f.z, 3, 2, 0xb0b0b0);
           au.shot(clamp(1.2 - near(f.x, f.z) / 50, 0.15, 1));
           if (f.isPlayer) this.trauma = Math.min(1, this.trauma + 0.22);
+          break;
+        }
+        case 'stratagem': {
+          const def = STRATS.find((d) => d.id === e.id);
+          if (!def) break;
+          const mine = e.team === p.team;
+          this.hud.showCallout(`${def.kanji}`, mine ? def.name : `Enemy stratagem: ${def.name}`);
+          if (e.id === 'drums') {
+            for (let i = 0; i < 4; i++) au.taiko(i === 3 ? 1 : 0.75, i * 0.22);
+            for (const f of w.fighters) if (f.team === e.team && !f.dead && near(f.x, f.z) < 60) fx.ring(f.x, f.z, 8, this.teamColors[e.team], 0.6);
+          } else if (e.id === 'reinforce') {
+            au.chime(2);
+            au.taiko(0.8);
+            const camp = w.nearestBase(e.x, e.z, (b) => b.team === e.team);
+            if (camp) fx.dust(camp.x, camp.z, 30, 6);
+          } else if (e.id === 'fire') au.taiko(0.6);
+          break;
+        }
+        case 'strike': {
+          const mine = e.team === p.team;
+          if (e.phase === 'warn') {
+            this.addWarning(e.x, e.z, e.r, e.t, mine ? 0xffb347 : 0xff3a2a);
+            // the volley comes in over the caller's shoulder
+            const from = w.fighters.find((f) => f.team === e.team && !f.dead && Math.hypot(f.x - e.x, f.z - e.z) < 40);
+            fx.fireArrows(e.x, e.z, e.r, e.t, from?.x ?? e.x, from?.z ?? e.z - 20);
+            const d = near(e.x, e.z);
+            if (d < 70) for (let i = 0; i < 5; i++) au.arrow(clamp(0.9 - d / 80, 0.1, 0.8));
+          } else {
+            const blaze = e.phase === 'blaze';
+            fx.flash(e.x, 1.5, e.z, blaze ? 14 : 11, 0xffa040, 0.35, false);
+            fx.ring(e.x, e.z, e.r * 2.2, 0xff8a3a, 0.5);
+            fx.sparks(e.x, 1, e.z, 40, 0xffa040, 12);
+            fx.embers(e.x, 0.2, e.z, 60, 0xff7a2a, e.r);
+            fx.scorch(e.x, e.z, e.r * 0.9, blaze ? 16 : 10);
+            this.burns.push({ x: e.x, z: e.z, r: e.r * 0.85, t: blaze ? 9 : 4.5, max: blaze ? 9 : 4.5 });
+            const d = near(e.x, e.z);
+            if (d < 80) {
+              au.bigHit();
+              au.shot(clamp(1 - d / 80, 0.1, 0.9));
+            }
+          }
           break;
         }
         case 'takeover': {

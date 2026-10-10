@@ -1,4 +1,4 @@
-export type Action = 'light' | 'heavy' | 'jump' | 'dodge' | 'guard' | 'super' | 'rage' | 'lock' | 'mount' | 'pause' | 'map' | 'debug';
+export type Action = 'light' | 'heavy' | 'jump' | 'dodge' | 'guard' | 'super' | 'rage' | 'lock' | 'mount' | 'pause' | 'map' | 'debug' | 'strat1' | 'strat2' | 'strat3' | 'strat4';
 
 export const DEFAULT_KEYS: Record<Action, string[]> = {
   light: ['KeyJ', 'Mouse0'],
@@ -13,6 +13,10 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   pause: ['Escape', 'KeyP'],
   map: ['KeyM'],
   debug: ['Backquote'],
+  strat1: ['Digit1'],
+  strat2: ['Digit2'],
+  strat3: ['Digit3'],
+  strat4: ['Digit4'],
 };
 
 // Standard-mapping gamepad buttons.
@@ -28,6 +32,11 @@ const PAD: Partial<Record<Action, number[]>> = {
   mount: [10],
   pause: [9],
   map: [8],
+  // D-pad up, right, down, left
+  strat1: [12],
+  strat2: [15],
+  strat3: [13],
+  strat4: [14],
 };
 
 /**

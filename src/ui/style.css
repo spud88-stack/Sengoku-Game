@@ -19,6 +19,24 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0a09; col
 .hud .panel { position: absolute; }
 .plate { left: 22px; top: 18px; width: 380px; }
 .plate .name { font-size: 22px; font-weight: 700; letter-spacing: .04em; }
+.strats { left: 22px; top: 128px; width: min(380px, 34vw); }
+.strats .pips { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; }
+.strats .pips small { font-size: 10px; letter-spacing: .3em; color: var(--gold); margin-right: 6px; }
+.strats .pip { width: 16px; height: 16px; transform: rotate(45deg) scale(.78); border: 1px solid #000; outline: 1px solid #ffffff33; background: #0009; position: relative; overflow: hidden; }
+.strats .pip i { position: absolute; inset: 0; background: linear-gradient(#ffe9a8, var(--gold)); transform-origin: bottom; transform: scaleY(0); transition: transform .2s; }
+.strats .drum { margin-left: 10px; font-size: 12px; color: #ffcf8a; opacity: 0; transition: opacity .3s; letter-spacing: .1em; }
+.strats .drum.on { opacity: 1; animation: drumbeat 0.5s ease-in-out infinite alternate; }
+.strats .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.strats .scard { position: relative; background: linear-gradient(#000c, #0008); border: 1px solid #ffffff22; border-bottom: 2px solid #ffffff22; padding: 3px 4px 4px; text-align: center; opacity: .45; transition: opacity .2s, border-color .2s; }
+.strats .scard.ready { opacity: 1; border-bottom-color: var(--gold); }
+.strats .scard.no { animation: nope .3s; }
+.strats .scard b { display: block; font-size: 17px; line-height: 1.15; color: #f4ead2; white-space: nowrap; }
+.strats .scard .nm { display: block; font-size: 10px; letter-spacing: .04em; color: var(--paper-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strats .scard .cost { font-size: 9px; color: var(--gold); letter-spacing: .1em; }
+.strats .scard .key { position: absolute; left: 3px; top: 1px; font-size: 10px; color: var(--gold); font-family: ui-monospace, monospace; }
+.strats .scard .key em { font-style: normal; margin-left: 2px; color: var(--paper-dim); }
+@keyframes nope { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); border-color: var(--crimson); } 75% { transform: translateX(4px); } }
+@keyframes drumbeat { from { opacity: .55; } to { opacity: 1; } }
 .plate .title { font-size: 12px; color: var(--paper-dim); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
 .bar { position: relative; height: 16px; background: #0009; border: 1px solid #000; outline: 1px solid #ffffff22; transform: skewX(-14deg); overflow: hidden; margin-bottom: 5px; }
 .bar > i { position: absolute; inset: 0; transform-origin: left; display: block; }

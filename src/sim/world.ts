@@ -1,6 +1,7 @@
 import { DIFFICULTY, TUNE, type Difficulty } from '../data/tuning';
 import { clamp, Rng } from '../core/math';
 import { Fighter, type Controller } from './fighter';
+import { STRATS, type StratId } from '../data/stratagems';
 import type { HitDef, MoveDef, OfficerDef, SimEvent } from './types';
 
 const S = TUNE.soldier;
@@ -156,6 +157,18 @@ const CELL = 3;
 const SHOT_HIT: HitDef = { t0: 0, t1: 0, range: 1, arc: 360, dmg: 1, react: 'stagger', kb: 1.5, stop: 0.03 };
 const CAV_HIT: HitDef = { t0: 0, t1: 0, range: 2.4, arc: 120, dmg: 11, react: 'stagger', kb: 6, stop: 0.05 };
 const SOLDIER_HIT: HitDef = { t0: 0, t1: 0, range: S.reach, arc: 90, dmg: S.dmgToFighter, react: 'stagger', kb: 2.2, stop: 0.03 };
+const FIRE_HIT: HitDef = { t0: 0, t1: 0, range: 1, arc: 360, dmg: TUNE.strat.fireOfficerDmg, react: 'stagger', kb: 3, stop: 0.04 };
+const ST = TUNE.strat;
+
+/** Fire arrows in flight: they land on (x, z) when t runs out. */
+export interface Strike {
+  team: number;
+  x: number;
+  z: number;
+  r: number;
+  t: number;
+  by: Fighter | null;
+}
 
 export class World {
   time = 0;
@@ -191,6 +204,12 @@ export class World {
   /** fresh officers who can ride in when no ally is left standing to take over */
   successors: OfficerDef[] = [];
   takeovers = 0;
+  /** stratagem points per army */
+  command = [ST.start, ST.start];
+  /** War Drums time left per army */
+  drumT = [0, 0];
+  strikes: Strike[] = [];
+  private stratT = ST.aiEvery * 5;
 
   private uid = 1;
   private gridN: number;
@@ -555,7 +574,7 @@ export class World {
       this.events.push({ type: 'block', x: s.x - nx * 0.5, y: 1.1, z: s.z - nz * 0.5, byPlayer: false });
       if (s.hp > 0) return;
     }
-    s.hp -= hit.dmg * dmgMul * (1.15 - this.morale[s.team] / 400) * (a.isPlayer ? 1 : TUNE.npcTroopScale) * (s.buff ? 0.7 : 1);
+    s.hp -= hit.dmg * dmgMul * (1.15 - this.morale[s.team] / 400) * (a.isPlayer ? 1 : TUNE.npcTroopScale) * (s.buff ? 0.7 : 1) * (this.drumT[s.team] > 0 ? ST.drumGuard : 1);
     this.releaseToken(s);
     const killed = s.hp <= 0;
     const r = this.rng;
@@ -641,6 +660,7 @@ export class World {
       if (by.isPlayer) {
         if (s.kind === SK.Captain && this.rng.chance(0.4)) this.items.push({ x: s.x, z: s.z, kind: this.rng.chance(0.7) ? 'heal' : 'spirit', t: 40 });
         this.ko++;
+        if (this.ko % ST.perKOs === 0) this.addCommand(by.team, 1);
         this.events.push({ type: 'ko', count: this.ko, x: s.x, z: s.z });
         if (this.ko % 100 === 0) this.addMorale(by.team, TUNE.morale.ko100);
       }
@@ -661,6 +681,7 @@ export class World {
     b.threat = 0;
     for (const s of this.soldiers) if (s.active && s.base === b.id) s.base = -1;
     this.addMorale(team, TUNE.morale.baseCapture * (b.main ? 2 : 1));
+    this.addCommand(team, 1);
     if (by?.isPlayer) this.stats.bases++;
     const who = by ? by.def.name : `${this.def.sides[team]} forces`;
     this.log(`${who} captured ${b.name}!`, team, team === this.playerTeam ? 'good' : 'bad');
@@ -671,6 +692,7 @@ export class World {
 
   onOfficerDown(f: Fighter, by: Fighter | null) {
     this.addMorale(1 - f.team, TUNE.morale.officerDown * (f.isCommander ? 2 : 1));
+    this.addCommand(1 - f.team, 1);
     if (f.def.lines?.lose) this.say(f, f.def.lines.lose);
     const good = f.team !== this.playerTeam;
     this.log(by ? `${by.def.name} has defeated ${f.def.name}!` : `${f.def.name} has fallen!`, 1 - f.team, good ? 'good' : 'bad');
@@ -737,6 +759,164 @@ export class World {
     return best;
   }
 
+  // ------------------------------------------------------------ stratagems
+  addCommand(team: number, n: number) {
+    this.command[team] = Math.min(ST.max, this.command[team] + n);
+  }
+
+  /**
+   * Spend command points on a stratagem. `by` is the officer calling it (where it centres);
+   * fire arrows land at (tx, tz) when given, otherwise just ahead of them.
+   */
+  useStratagem(team: number, id: StratId, by: Fighter, tx?: number, tz?: number): boolean {
+    const def = STRATS.find((d) => d.id === id);
+    if (!def || this.ended || by.dead || this.command[team] < def.cost) return false;
+    const foe = 1 - team;
+    switch (id) {
+      case 'fire': {
+        const x = tx ?? by.x + Math.sin(by.face) * ST.fireAhead,
+          z = tz ?? by.z + Math.cos(by.face) * ST.fireAhead;
+        const lim = this.half - 2;
+        const st: Strike = { team, x: clamp(x, -lim, lim), z: clamp(z, -lim, lim), r: ST.fireRadius, t: ST.fireDelay, by };
+        this.strikes.push(st);
+        this.events.push({ type: 'strike', phase: 'warn', x: st.x, z: st.z, r: st.r, t: st.t, team });
+        break;
+      }
+      case 'drums':
+        this.drumT[team] = ST.drumTime;
+        this.addMorale(team, 10);
+        break;
+      case 'reinforce': {
+        const camp = this.nearestBase(by.x, by.z, (b) => b.team === team);
+        // from the nearest camp if there is one; otherwise they come up from behind
+        const ox = camp ? camp.x : by.x - Math.sin(by.face) * 25,
+          oz = camp ? camp.z : by.z - Math.cos(by.face) * 25;
+        for (let i = 0; i < ST.reinforce; i++) {
+          const kind = i === 0 ? SK.Captain : i === 1 ? SK.Banner : i <= 4 ? SK.Shield : i <= 7 ? this.ranged(team) : SK.Spear;
+          const s = this.spawn(team, ox + this.rng.range(-4, 4), oz + this.rng.range(-4, 4), kind, false);
+          if (!s) break;
+          const a = this.rng.range(0, Math.PI * 2),
+            r = this.rng.range(2, 6);
+          s.leader = by;
+          s.ox = Math.sin(a) * r;
+          s.oz = Math.cos(a) * r;
+        }
+        break;
+      }
+      case 'sabotage': {
+        const b = this.nearestBase(by.x, by.z, (o) => o.team === foe && !o.main) ?? this.nearestBase(by.x, by.z, (o) => o.team === foe);
+        if (!b) return false;
+        b.garrison = Math.max(1, b.garrison * 0.5);
+        b.threat = 6;
+        this.addMorale(team, 6);
+        // the defenders scatter from the flames; a few never get up
+        for (const s of this.soldiers) {
+          if (!s.active || s.dead || s.base !== b.id) continue;
+          const dx = s.x - b.x,
+            dz = s.z - b.z,
+            d = Math.hypot(dx, dz) || 1;
+          // fire is not a garrison falling to the sword: the camp itself stays in their hands
+          s.base = -1;
+          if (this.rng.chance(0.25)) this.killSoldier(s, null);
+          s.st = SS.Air;
+          s.vy = this.rng.range(3, 6);
+          s.vx = (dx / d) * this.rng.range(3, 7);
+          s.vz = (dz / d) * this.rng.range(3, 7);
+          s.spin = this.rng.range(-6, 6);
+        }
+        this.events.push({ type: 'strike', phase: 'blaze', x: b.x, z: b.z, r: b.r, t: 0, team });
+        break;
+      }
+    }
+    this.command[team] -= def.cost;
+    this.events.push({ type: 'stratagem', id, team, x: by.x, z: by.z, who: by.def.name });
+    this.log(`${by.def.name} calls ${def.name}!`, team, team === this.playerTeam ? 'good' : 'bad');
+    return true;
+  }
+
+  private updateStratagems(dt: number) {
+    for (let t = 0; t < 2; t++) {
+      this.addCommand(t, dt / ST.regen);
+      if (this.drumT[t] > 0) this.drumT[t] -= dt;
+    }
+    for (let i = this.strikes.length - 1; i >= 0; i--) {
+      const st = this.strikes[i];
+      if ((st.t -= dt) > 0) continue;
+      this.strikes.splice(i, 1);
+      this.landFire(st);
+    }
+    this.enemyStrategist(dt);
+  }
+
+  /** The arrows come down: troops in the circle burn, officers are scorched (a guard facing the volley holds). */
+  private landFire(st: Strike) {
+    const r2 = st.r * st.r;
+    const byPlayer = !!st.by?.isPlayer;
+    const mul = st.team !== this.playerTeam ? this.diff.enemyDmg : 1;
+    this.forNear(st.x, st.z, st.r, (s) => {
+      if (s.team === st.team || s.dead || s.st === SS.Air) return;
+      const dx = s.x - st.x,
+        dz = s.z - st.z,
+        d2 = dx * dx + dz * dz;
+      if (d2 > r2) return;
+      const d = Math.sqrt(d2) || 1;
+      s.hp -= ST.fireDmg * (1 - (0.5 * d) / st.r) * (this.drumT[s.team] > 0 ? ST.drumGuard : 1);
+      this.releaseToken(s);
+      if (s.hp <= 0) this.killSoldier(s, byPlayer ? st.by : null);
+      s.st = SS.Air;
+      s.vy = this.rng.range(2.5, 5);
+      s.vx = (dx / d) * this.rng.range(2, 5);
+      s.vz = (dz / d) * this.rng.range(2, 5);
+      s.spin = this.rng.range(-5, 5);
+    });
+    for (const f of this.fighters) {
+      if (f.team === st.team || f.dead || f.y > 2.5) continue;
+      const dx = f.x - st.x,
+        dz = f.z - st.z,
+        d = Math.hypot(dx, dz);
+      if (d > st.r) continue;
+      const nx = d > 0.05 ? dx / d : 1,
+        nz = d > 0.05 ? dz / d : 0;
+      const res = f.takeHit(this, null, FIRE_HIT, nx, nz, mul * (f.isPlayer ? 1 : TUNE.troopVsNpc * 2));
+      if (res === 'hit' || res === 'kill') this.events.push({ type: 'hit', x: f.x, y: f.y + 1.2, z: f.z, dx: nx, dz: nz, weight: 0.6, blood: true, officer: true, byPlayer });
+    }
+    this.events.push({ type: 'strike', phase: 'hit', x: st.x, z: st.z, r: st.r, t: 0, team: st.team });
+    this.events.push({ type: 'shake', amt: this.player && Math.hypot(this.player.x - st.x, this.player.z - st.z) < 30 ? 0.35 : 0 });
+  }
+
+  /** The enemy commander spends its points too: arrows on a rampaging player, drums when losing, help for a camp under attack. */
+  private enemyStrategist(dt: number) {
+    if ((this.stratT -= dt) > 0) return;
+    this.stratT = ST.aiEvery;
+    const p = this.player;
+    if (!p || this.ended || !this.bases.length) return;
+    const t = 1 - p.team;
+    const c = this.commanders[t];
+    if (!c || c.dead || !this.rng.chance(this.diff.stratagems)) return;
+    const pts = this.command[t];
+    if (pts >= 1 && !p.dead && p.combatT > 0 && !this.strikes.some((s) => s.team === t)) {
+      let near = 0;
+      this.forNear(p.x, p.z, 8, (s) => {
+        if (s.team !== p.team && !s.dead) near++;
+      });
+      // they will burn a few of their own men to stop a demon in their ranks
+      if (near >= 6) {
+        this.useStratagem(t, 'fire', c, p.x, p.z);
+        return;
+      }
+    }
+    if (pts >= 1 && this.drumT[t] <= 0 && this.morale[t] < this.morale[p.team] - 8) {
+      this.useStratagem(t, 'drums', c);
+      return;
+    }
+    if (pts >= 3) {
+      const hurt = this.bases.find((b) => b.team === t && b.threat > 0 && b.garrison < b.maxGarrison * 0.5);
+      const officer = hurt && this.fighters.filter((f) => f.team === t && !f.dead).sort((a, b) => Math.hypot(a.x - hurt.x, a.z - hurt.z) - Math.hypot(b.x - hurt.x, b.z - hurt.z))[0];
+      if (officer) this.useStratagem(t, 'reinforce', officer);
+      else if (pts >= ST.max - 0.5) this.useStratagem(t, 'sabotage', c);
+    }
+  }
+
   // ------------------------------------------------------------ step
   step(dt: number) {
     if (this.hitstop > 0) {
@@ -756,6 +936,7 @@ export class World {
     this.updateSoldiers(dt);
     this.updateShots(dt);
     this.updateItems(dt);
+    this.updateStratagems(dt);
     this.updateBases(dt);
     if ((this.eventT -= dt) <= 0) {
       this.eventT = 0.5;
@@ -1115,7 +1296,7 @@ export class World {
           s.st = SS.Strike;
           s.t = S.strike;
           this.events.push({ type: 'soldierSwing', x: s.x, z: s.z });
-          const mm0 = this.moraleMul(s.team) * (s.team !== this.playerTeam ? this.diff.enemyDmg : 1) * (s.buff ? 1.4 : 1);
+          const mm0 = this.moraleMul(s.team) * (s.team !== this.playerTeam ? this.diff.enemyDmg : 1) * (s.buff ? 1.4 : 1) * (this.drumT[s.team] > 0 ? ST.drumDmg : 1);
           if (ranged) {
             // loose at where the target is now: anyone who keeps moving is missed
             if (hasTarget) {
