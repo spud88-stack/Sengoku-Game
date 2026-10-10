@@ -21,6 +21,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+// If the GPU drops the context (driver reset, memory pressure), let the browser hand it back instead of leaving a frozen frame.
+canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
 
 loadProfile();
 const input = new Input(canvas);
@@ -220,11 +222,18 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 let last = performance.now();
+let frameErrors = 0;
 function loop(now: number) {
+  // ask for the next frame first: one bad frame must not stop the game for good
+  requestAnimationFrame(loop);
   const dt = (now - last) / 1000;
   last = now;
-  if (!manual) frame(dt);
-  requestAnimationFrame(loop);
+  if (manual) return;
+  try {
+    frame(dt);
+  } catch (err) {
+    if (frameErrors++ < 5) console.error(err);
+  }
 }
 
 applySettings();

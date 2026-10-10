@@ -356,13 +356,22 @@ export function buildStage(def: BattleDef, teamColors: number[], teamMons: strin
       weatherMesh.geometry.attributes.position.needsUpdate = true;
     },
     dispose() {
+      // Free everything on the GPU, textures and shadow maps included: a new stage is built for every battle and every
+      // trip back to the menus, and leaking one each time eventually costs the WebGL context.
+      const freeMaterial = (mat: THREE.Material) => {
+        for (const v of Object.values(mat)) if (v instanceof THREE.Texture) v.dispose();
+        mat.dispose();
+      };
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         m.geometry?.dispose?.();
         const mm = m.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mm)) mm.forEach((x) => x.dispose());
-        else mm?.dispose?.();
+        if (Array.isArray(mm)) mm.forEach(freeMaterial);
+        else if (mm) freeMaterial(mm);
+        if ((o as THREE.Light).isLight) (o as THREE.Light).dispose();
+        if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
       });
+      for (const t of texCache.values()) t.dispose();
     },
   };
   (stage as any).flagTex = flagTex;

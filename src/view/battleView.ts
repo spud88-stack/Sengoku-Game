@@ -179,6 +179,7 @@ export class BattleView {
   dispose() {
     this.hud.dispose();
     this.stage.dispose();
+    this.renderer.renderLists.dispose();
   }
 
   // ------------------------------------------------------------ player input → intent
