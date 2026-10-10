@@ -16,6 +16,10 @@ npm run dev
 
 Then open http://localhost:5173. `npm run build` produces a static site in `dist/`.
 
+## Publish on GitHub Pages
+
+The `index.html` in the repo loads TypeScript source, which only works through Vite, so Pages must serve the built site rather than the branch. `.github/workflows/deploy.yml` builds and deploys it on every push to `main`. One-time setup: in the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
+
 ## Modes
 
 - **Tutorial**: nine guided steps on the training ground, ending in a duel.
