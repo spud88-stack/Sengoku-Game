@@ -4,17 +4,7 @@ A third-person, one-against-a-thousand action game set in Japan's Warring States
 
 ## Run it
 
-Node 20 or newer is required.
-
-```bash
-npm install
-```
-
-```bash
-npm run dev
-```
-
-Then open http://localhost:5173. `npm run build` produces a static site in `dist/`.
+https://spud88-stack.github.io/Sengoku-Game/
 
 ## Publish on GitHub Pages
 
