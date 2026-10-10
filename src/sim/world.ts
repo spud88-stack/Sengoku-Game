@@ -206,7 +206,8 @@ export class World {
     this.reserves = [...def.reserves];
     this.obstacles = def.obstacles ?? [];
     this.gridN = Math.ceil((def.half * 2) / CELL) + 1;
-    this.head = new Int32Array(this.gridN * this.gridN);
+    // start empty: the view can query the grid on a frame too short to have run the first step
+    this.head = new Int32Array(this.gridN * this.gridN).fill(-1);
 
     def.bases.forEach((b, i) =>
       this.bases.push({
