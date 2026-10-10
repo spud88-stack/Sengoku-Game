@@ -310,3 +310,22 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .pcols { display: flex; gap: 34px; align-items: center; flex-wrap: wrap; justify-content: center; }
 .bigmap { width: min(440px, 80vw); height: auto; border: 2px solid #000; outline: 1px solid #ffffff33; }
+
+/* warrior editor */
+.editor .ecols { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 22px; align-items: start; max-height: 78vh; }
+.editor .pcol { display: flex; flex-direction: column; gap: 12px; }
+.preview3d { width: 300px; height: 380px; background: radial-gradient(ellipse at 50% 70%, #3a302a, #0d0b0a 75%); border: 2px solid #ffffff22; }
+.editor .eform { max-height: 78vh; overflow-y: auto; padding-right: 6px; }
+.editor .srow.wrap { flex-wrap: wrap; gap: 8px; }
+.editor .srow input[type=text] { background: #0008; border: 1px solid #ffffff33; color: inherit; font: inherit; padding: 4px 8px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.swatch { width: 24px; height: 24px; border: 2px solid #0008; padding: 0; }
+.swatch.on, .swatch:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+.pips { display: flex; gap: 4px; flex: 1; }
+.pips i { width: 16px; height: 10px; background: #ffffff1c; transform: skewX(-14deg); }
+.pips i.on { background: var(--gold); }
+.wrow { display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: #ffffff0c; }
+.wrow img, .wrow > i { width: 48px; height: 60px; object-fit: cover; display: block; }
+.wrow > div { flex: 1; display: flex; flex-direction: column; }
+.wrow small { color: var(--paper-dim); }
+@media (max-width: 760px) { .editor .ecols { grid-template-columns: 1fr; } .preview3d { width: 220px; height: 280px; } }

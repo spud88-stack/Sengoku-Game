@@ -80,6 +80,12 @@ export interface OfficerDef {
   secondary: number;
   crest: 'horns' | 'crescent' | 'antlers' | 'fan' | 'sun' | 'cross' | 'plume' | 'none';
   scale?: number;
+  /** headgear; a horned kabuto unless said otherwise */
+  helm?: 'kabuto' | 'jingasa' | 'hachimaki' | 'zukin';
+  /** iron face mask (default on) */
+  mask?: boolean;
+  /** banner on a pole at the back (default on) */
+  banner?: boolean;
   lines?: { enter?: string; win?: string; lose?: string; super?: string };
 }
 

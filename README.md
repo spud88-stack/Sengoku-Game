@@ -17,6 +17,7 @@ The `index.html` in the repo loads TypeScript source, which only works through V
 - **Free Mode**: any of 14 officers in any of 7 historical battles, on either side, at four difficulties. Officers gain experience and levels. Each field has its own lie of the land: Ueda Castle on its hill, the gorge at Okehazama, the river plain under Saijoyama at Kawanakajima, the Rengo stream at Nagashino, the Western Army's hill camps at Sekigahara, Osaka Castle on its plateau.
 - **Empire Mode**: a turn-based campaign over 31 provinces. Three starting eras (1560, 1570, 1582), any clan, or your own upstart lord. Develop provinces, levy troops, hire and suborn officers, make and break pacts, and fight every invasion yourself or leave it to your generals. Ends in unification or extinction, with an ending that reflects how you ruled.
 - **Training Ground**: one rival and a squad, no stakes.
+- **Warriors**: design your own officers. Name and title, any weapon, temper and clan, armour and cloth colours, helmet (kabuto, war hat, headband or shinobi hood), crest, mask, back banner, build and battle cries, with ten points to spread across Vitality, Attack, Defence and Speed. Start from scratch or from any historical officer's look. They fight in Free Mode and the Training Ground beside the historical roster and level up the same way.
 
 ## Controls
 

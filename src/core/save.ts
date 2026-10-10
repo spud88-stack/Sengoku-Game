@@ -31,6 +31,8 @@ export interface Profile {
   tutorialDone: boolean;
   empire: unknown | null;
   empireWins: string[];
+  /** warriors the player has designed (see data/custom.ts) */
+  customs: any[];
 }
 
 const KEY = 'sengoku-warriors.profile';
@@ -45,6 +47,7 @@ const fresh = (): Profile => ({
   tutorialDone: false,
   empire: null,
   empireWins: [],
+  customs: [],
 });
 
 export let profile: Profile = fresh();

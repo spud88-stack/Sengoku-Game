@@ -12,6 +12,7 @@ import { Shell, type BattleResult } from './ui/screens';
 import { Tutorial } from './ui/tutorial';
 import { BattleView } from './view/battleView';
 import { renderPortraits } from './view/portrait';
+import { CUSTOM_IDS, registerCustoms } from './data/custom';
 import { defaultQuality, Presenter, QUALITY, type Quality } from './view/gfx';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -26,6 +27,7 @@ const presenter = new Presenter(renderer);
 canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
 
 loadProfile();
+registerCustoms(profile.customs);
 const input = new Input(canvas);
 const audio = new Audio();
 window.addEventListener('pointerdown', () => audio.startMusic(), { once: true });
@@ -199,6 +201,12 @@ const shell: Shell = new Shell(ui, {
       );
       tutorial = new Tutorial(view!.world, ui);
     });
+  },
+  customsChanged() {
+    registerCustoms(profile.customs);
+    // a fresh portrait for anyone new or changed
+    const defs = CUSTOM_IDS.map((id) => OFFICERS[id]);
+    Object.assign(portraits, renderPortraits(defs));
   },
   openEmpire() {
     import('./ui/empireScreens').then((m) => m.openEmpire({ shell, ui, audio, portraits, runBattle, transition, attract, pauseView: () => void (view && (view.paused = true)) }));

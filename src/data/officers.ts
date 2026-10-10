@@ -24,6 +24,7 @@ export const CLANS: Record<string, Clan> = {
   otomo: { name: 'Otomo', color: 0xc05a8a, accent: 0xf0f0f0, mon: '杏' },
   saika: { name: 'Saika', color: 0x5a5a2a, accent: 0xd03a2a, mon: '烏' },
   ishida: { name: 'Ishida', color: 0x8a3a2a, accent: 0xf0e0c0, mon: '吉' },
+  ronin: { name: 'Ronin', color: 0x5a5048, accent: 0xd9cfb8, mon: '浪' },
 };
 
 const o = (

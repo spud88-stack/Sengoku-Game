@@ -12,6 +12,7 @@ Build brief: `PROMPT.md`. Player-facing notes: `README.md`. Node lives in `~/.lo
   - `terrain.ts` the shape of each field (hills, rivers, ridges, raised camps), baked into a height grid shared by sim and view.
 - `src/view/` Three.js: `rig.ts`/`pose.ts`/`anims.ts` (procedural samurai, clips built from move timings), `crowd.ts` (instanced troops, horses, arrows), `fx.ts`, `scene.ts` (stage, terrain mesh, sky shader, weather), `grass.ts` (tiles of instanced grass around the player), `gfx.ts` (quality levels, bloom), `battleView.ts`, `portrait.ts`.
 - `src/ui/` DOM: `hud.ts`, `screens.ts` (all menus), `empireScreens.ts`, `tutorial.ts`.
+- `src/data/custom.ts` player-designed warriors: saved in the profile, turned into `OfficerDef`s and registered beside the roster at start-up. `src/view/preview.ts` is the editor's turning 3D preview.
 - `src/data/` tuning and content: `tuning.ts`, `moves.ts`, `officers.ts`, `battles.ts`, `empire.ts`, `stratagems.ts`.
 - `tools/` headless runners.
 
