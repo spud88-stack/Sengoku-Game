@@ -7,6 +7,10 @@ import { CLANS, OFFICERS, ROSTER } from '../data/officers';
 import { DIFFICULTY } from '../data/tuning';
 import { WEAPON_NAMES } from '../data/weapons';
 import { defaultQuality, QUALITY, type Quality } from '../view/gfx';
+import { blankWarrior, CUSTOM_IDS, STAT_LABELS, STAT_MAX, STAT_POINTS, statsOf, toOfficer, type CustomWarrior, type Helm, type StatKey } from '../data/custom';
+import { WEAPONS } from '../data/weapons';
+import { WarriorPreview } from '../view/preview';
+import type { OfficerDef, Personality } from '../sim/types';
 
 export interface BattleResult {
   won: boolean;
@@ -36,6 +40,8 @@ export interface ShellHost {
   openEmpire(): void;
   startTutorial(): void;
   applySettings(): void;
+  /** the saved custom warriors changed: re-register them and redraw their portraits */
+  customsChanged(): void;
 }
 
 type Child = Node | string | null | undefined | false;
@@ -54,6 +60,9 @@ export function h(tag: string, attrs: Record<string, any> = {}, ...kids: (Child 
 }
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const TEMPER: Record<string, string> = { reckless: 'Reckless', patient: 'Patient', cunning: 'Cunning', honorable: 'Honourable' };
+/** Colours offered for armour and cloth. */
+const PALETTE = [0xa81c1c, 0x7a2a2a, 0xe0701a, 0xd0a020, 0x9aa63a, 0x2f7a52, 0x3f8f7f, 0x4a7fb5, 0x1d3a6e, 0x6a3fb5, 0xc05a8a, 0xd8d6cc, 0x8a8578, 0x55687c, 0x34343f, 0x1e1c22];
+const CRESTS: [OfficerDef['crest'], string][] = [['crescent', 'Crescent'], ['horns', 'Horns'], ['antlers', 'Antlers'], ['sun', 'Sun disc'], ['fan', 'Fan'], ['cross', 'Cross'], ['plume', 'Plume'], ['none', 'None']];
 
 export function grade(r: BattleResult): string {
   if (!r.won) return r.kos >= 300 ? 'C' : 'D';
@@ -207,6 +216,7 @@ export class Shell {
         this.btn('Free Mode', () => this.freeOfficer(), 'big', 'Any officer, any battle, either side'),
         this.btn('Empire Mode', () => this.host.openEmpire(), 'big', 'Unify the land province by province'),
         this.btn('Training Ground', () => this.dojoPick(), '', 'Practise against a single rival'),
+        this.btn('Warriors', () => this.warriors(), '', 'Create and outfit warriors of your own'),
         profile.tutorialDone && this.btn('Tutorial', () => this.host.startTutorial(), '', 'Replay the basics'),
         this.btn('Gallery', () => this.gallery(), '', 'Officers, records and move lists'),
         this.btn('Settings', () => this.settings(() => this.menu()), '', 'Sound, camera, blood, controls'),
@@ -247,7 +257,7 @@ export class Shell {
     const grid = h(
       'div.grid',
       {},
-      ROSTER.map((id) => {
+      [...ROSTER, ...CUSTOM_IDS].map((id) => {
         const o = OFFICERS[id];
         const c = CLANS[o.clan];
         return h(
@@ -281,6 +291,174 @@ export class Shell {
   }
   dojoPick() {
     this.pickOfficer('Training Ground', (id) => this.host.startDojo(id), () => this.menu());
+  }
+
+  // ------------------------------------------------------------ custom warriors
+  warriors() {
+    const list: CustomWarrior[] = profile.customs;
+    const rows = list.map((cw) =>
+      h(
+        'div.wrow',
+        {},
+        this.host.portraits[cw.id] ? h('img', { src: this.host.portraits[cw.id], alt: '' }) : h('i', { style: { background: hex(cw.primary) } }),
+        h('div', {}, h('b', {}, cw.name), h('small', {}, `${cw.title} · ${WEAPON_NAMES[cw.weapon]} · Lv ${levelOf(record(cw.id).xp).level}`)),
+        this.btn('Edit', () => this.editWarrior({ ...cw, points: { ...cw.points } }, false), 'mini'),
+        this.btn('Dismiss', () => {
+          if (!confirm(`Dismiss ${cw.name}? Their levels are kept in case you make them again.`)) return;
+          profile.customs = list.filter((x) => x.id !== cw.id);
+          saveProfile();
+          this.host.customsChanged();
+          this.warriors();
+        }, 'mini'),
+      ),
+    );
+    this.mount(
+      h(
+        'div.pause.wide',
+        {},
+        h('h2', {}, 'Your Warriors'),
+        h('div.slist', {}, rows.length ? rows : h('p.keys', {}, 'No warriors yet. Make one, then choose them in Free Mode or on the Training Ground.')),
+        h('div.row2', {}, list.length < 12 && this.btn('Create a Warrior', () => this.editWarrior(blankWarrior(list.length), true), 'go'), this.btn('Back', () => this.menu())),
+      ),
+      () => this.menu(),
+    );
+  }
+
+  private editWarrior(cw: CustomWarrior, isNew: boolean) {
+    const preview = new WarriorPreview();
+    const refresh = () => preview.set(toOfficer(cw));
+    const leave = () => {
+      preview.dispose();
+      this.warriors();
+    };
+    const cycleBtn = <T>(label: string, get: () => T, opts: [T, string][], set: (v: T) => void, after?: () => void) => {
+      const name = () => opts.find((o) => o[0] === get())?.[1] ?? '';
+      const text = () => (label ? `${label}: ${name()}` : name());
+      const b = this.btn(text(), () => {
+        const i = opts.findIndex((o) => o[0] === get());
+        set(opts[(i + 1) % opts.length][0]);
+        b.querySelector('span')!.textContent = text();
+        after?.();
+        refresh();
+      }, 'mini');
+      return b;
+    };
+    const text = (label: string, get: () => string, set: (v: string) => void, max = 24) =>
+      h('label.srow', {}, h('span', {}, label), h('input.nav', { type: 'text', value: get(), maxlength: max, on: { input: (e: Event) => set((e.target as HTMLInputElement).value) } }));
+    const swatches = (label: string, get: () => number, set: (v: number) => void) => {
+      const row = h('div.swatches');
+      const draw = () =>
+        row.replaceChildren(
+          ...PALETTE.map((c) =>
+            h('button.nav.swatch' + (c === get() ? '.on' : ''), {
+              style: { background: hex(c) },
+              title: hex(c),
+              on: {
+                click: () => {
+                  set(c);
+                  draw();
+                  refresh();
+                },
+              },
+            }),
+          ),
+        );
+      draw();
+      return h('div.srow', {}, h('span', {}, label), row);
+    };
+    // stats: ten points across four
+    const statWrap = h('div.stats4');
+    const drawStats = () => {
+      const left = STAT_POINTS - Object.values(cw.points).reduce((a, b) => a + b, 0);
+      const st = statsOf(cw);
+      const shown: Record<StatKey, string> = { hp: String(st.hp), atk: st.atk.toFixed(2), def: st.def.toFixed(2), speed: st.speed.toFixed(2) };
+      statWrap.replaceChildren(
+        h('div.srow', {}, h('span', {}, `Points to spend: ${left}`)),
+        ...(Object.keys(STAT_LABELS) as StatKey[]).map((k) =>
+          h(
+            'div.srow',
+            {},
+            h('span', {}, `${STAT_LABELS[k]} ${shown[k]}`),
+            h('div.pips', {}, Array.from({ length: STAT_MAX }, (_, i) => h('i' + (i < cw.points[k] ? '.on' : '')))),
+            this.btn('−', () => {
+              if (cw.points[k] > 0) cw.points[k]--;
+              drawStats();
+            }, 'mini'),
+            this.btn('+', () => {
+              if (cw.points[k] < STAT_MAX && left > 0) cw.points[k]++;
+              drawStats();
+            }, 'mini'),
+          ),
+        ),
+      );
+    };
+    drawStats();
+    const weaponNote = h('p.keys', {}, WEAPONS.find((w) => w.id === cw.weapon)?.desc ?? '');
+    const save = () => {
+      cw.name = cw.name.trim() || 'Nameless Ronin';
+      cw.title = cw.title.trim() || 'Wandering Blade';
+      const list: CustomWarrior[] = profile.customs;
+      const i = list.findIndex((x) => x.id === cw.id);
+      if (i >= 0) list[i] = cw;
+      else list.push(cw);
+      saveProfile();
+      this.host.customsChanged();
+      leave();
+    };
+    // start from the look and weapon of any historical officer
+    const template = (o: OfficerDef) => {
+      Object.assign(cw, { weapon: o.weapon, personality: o.personality, primary: o.primary, secondary: o.secondary, crest: o.crest, clan: o.clan, scale: o.scale ?? 1, helm: 'kabuto', mask: true, banner: true });
+      this.editWarrior(cw, isNew);
+      preview.dispose();
+    };
+    this.mount(
+      h(
+        'div.pause.wide.editor',
+        {},
+        h('h2', {}, isNew ? 'Create a Warrior' : `Outfit ${cw.name}`),
+        h(
+          'div.ecols',
+          {},
+          h('div.pcol', {}, preview.canvas, h('div.row2', {}, this.btn('Save Warrior', save, 'go'), this.btn('Cancel', leave))),
+          h(
+            'div.slist.eform',
+            {},
+            text('Name', () => cw.name, (v) => (cw.name = v)),
+            text('Title', () => cw.title, (v) => (cw.title = v), 32),
+            h(
+              'div.srow',
+              {},
+              h('span', {}, 'Weapon'),
+              cycleBtn('', () => cw.weapon, WEAPONS.map((w) => [w.id, w.name] as [typeof w.id, string]), (v) => (cw.weapon = v), () => (weaponNote.textContent = WEAPONS.find((w) => w.id === cw.weapon)?.desc ?? '')),
+            ),
+            weaponNote,
+            h(
+              'div.srow.wrap',
+              {},
+              cycleBtn('Temper', () => cw.personality, Object.entries(TEMPER) as [Personality, string][], (v) => (cw.personality = v)),
+              cycleBtn('Clan', () => cw.clan, Object.entries(CLANS).map(([k, c]) => [k, c.name] as [string, string]), (v) => (cw.clan = v)),
+              cycleBtn('Build', () => cw.scale, [[0.94, 'Slight'], [1, 'Average'], [1.06, 'Broad'], [1.12, 'Towering']], (v) => (cw.scale = v)),
+            ),
+            swatches('Armour', () => cw.primary, (v) => (cw.primary = v)),
+            swatches('Cloth', () => cw.secondary, (v) => (cw.secondary = v)),
+            h(
+              'div.srow.wrap',
+              {},
+              cycleBtn('Helmet', () => cw.helm, [['kabuto', 'Kabuto'], ['jingasa', 'War hat'], ['hachimaki', 'Headband'], ['zukin', 'Shinobi hood']] as [Helm, string][], (v) => (cw.helm = v)),
+              cycleBtn('Crest', () => cw.crest, CRESTS, (v) => (cw.crest = v)),
+              cycleBtn('Mask', () => cw.mask, [[true, 'On'], [false, 'Off']], (v) => (cw.mask = v)),
+              cycleBtn('Banner', () => cw.banner, [[true, 'On'], [false, 'Off']], (v) => (cw.banner = v)),
+            ),
+            statWrap,
+            text('Battle cry', () => cw.enter, (v) => (cw.enter = v), 60),
+            text('Ougi cry', () => cw.super, (v) => (cw.super = v), 40),
+            h('div.srow.wrap', {}, h('span', {}, 'Start from'), ...ROSTER.slice(0, 14).map((id) => this.btn(OFFICERS[id].name.split(' ').slice(-1)[0], () => template(OFFICERS[id]), 'mini'))),
+          ),
+        ),
+      ),
+      leave,
+    );
+    refresh();
   }
 
   // ------------------------------------------------------------ battle select + briefing

@@ -354,29 +354,69 @@ export class Rig {
     spine.add(box(0.37, 0.07, 0.3, dark, 0, 0.02, 0));
     spine.add(box(0.14, 0.1, 0.14, skin, 0, 0.53, 0)); // neck
     // back banner
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.25, 4), dark);
-    pole.position.set(0, 0.75, -0.17);
-    spine.add(pole);
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.72), new THREE.MeshStandardMaterial({ color: def.primary, side: THREE.DoubleSide, roughness: 1, emissive: def.primary, emissiveIntensity: 0.25 }));
-    flag.position.set(0.18, 1.0, -0.17);
-    flag.castShadow = true;
-    spine.add(flag);
-    spine.add(box(0.34, 0.06, 0.012, trim, 0.18, 1.3, -0.17));
+    if (def.banner !== false) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.25, 4), dark);
+      pole.position.set(0, 0.75, -0.17);
+      spine.add(pole);
+      const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.72), new THREE.MeshStandardMaterial({ color: def.primary, side: THREE.DoubleSide, roughness: 1, emissive: def.primary, emissiveIntensity: 0.25 }));
+      flag.position.set(0.18, 1.0, -0.17);
+      flag.castShadow = true;
+      spine.add(flag);
+      spine.add(box(0.34, 0.06, 0.012, trim, 0.18, 1.3, -0.17));
+    }
 
-    // head + kabuto
+    // head and whatever is on it
     head.add(box(0.19, 0.2, 0.2, skin, 0, 0.1, 0));
-    head.add(box(0.2, 0.08, 0.1, dark, 0, 0.03, 0.065)); // mask
-    const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), dark);
-    bowl.position.y = 0.15;
-    bowl.scale.set(1, 0.95, 1.08);
-    bowl.castShadow = true;
-    head.add(bowl);
-    const neckGuard = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.25, 0.14, 8, 1, true, Math.PI * 0.55, Math.PI * 0.9 * 2), mat(def.primary, { rough: 0.55, metal: 0.25 }));
-    (neckGuard.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
-    neckGuard.position.set(0, 0.1, -0.02);
-    head.add(neckGuard);
-    head.add(box(0.26, 0.02, 0.12, dark, 0, 0.16, 0.13)); // visor
-    head.add(buildCrest(def.crest, 0xd9b23a));
+    if (def.mask !== false) head.add(box(0.2, 0.08, 0.1, dark, 0, 0.03, 0.065));
+    switch (def.helm ?? 'kabuto') {
+      case 'kabuto': {
+        const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), dark);
+        bowl.position.y = 0.15;
+        bowl.scale.set(1, 0.95, 1.08);
+        bowl.castShadow = true;
+        head.add(bowl);
+        const neckGuard = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.25, 0.14, 8, 1, true, Math.PI * 0.55, Math.PI * 0.9 * 2), mat(def.primary, { rough: 0.55, metal: 0.25 }));
+        (neckGuard.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+        neckGuard.position.set(0, 0.1, -0.02);
+        head.add(neckGuard);
+        head.add(box(0.26, 0.02, 0.12, dark, 0, 0.16, 0.13)); // visor
+        head.add(buildCrest(def.crest, 0xd9b23a));
+        break;
+      }
+      case 'jingasa': {
+        // a broad lacquered war hat
+        const hat = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.15, 10), mat(def.primary, { rough: 0.4, metal: 0.2 }));
+        hat.position.y = 0.27;
+        hat.castShadow = true;
+        head.add(hat);
+        const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.01, 8), trim);
+        disc.rotation.x = 0.42;
+        disc.position.set(0, 0.28, 0.13);
+        head.add(disc);
+        break;
+      }
+      case 'hachimaki':
+        // bare-headed: a topknot of hair and a white headband with trailing ends
+        head.add(box(0.2, 0.07, 0.21, mat(0x15120f), 0, 0.22, -0.005));
+        head.add(box(0.06, 0.06, 0.12, mat(0x15120f), 0, 0.28, -0.04));
+        head.add(box(0.205, 0.045, 0.215, mat(0xf0ece2), 0, 0.17, 0));
+        for (const s of [-1, 1]) {
+          const tail = box(0.03, 0.17, 0.012, mat(0xf0ece2), s * 0.04, 0.1, -0.12);
+          tail.rotation.set(0.5, 0, s * 0.3);
+          head.add(tail);
+        }
+        break;
+      case 'zukin': {
+        // a shinobi hood: only the eyes show
+        const hood = new THREE.Mesh(new THREE.SphereGeometry(0.135, 8, 6), mat(def.secondary, { rough: 0.95 }));
+        hood.position.y = 0.12;
+        hood.scale.set(1, 1.12, 1.05);
+        hood.castShadow = true;
+        head.add(hood);
+        head.add(box(0.15, 0.035, 0.03, skin, 0, 0.13, 0.13));
+        break;
+      }
+    }
 
     // arms
     for (const [arm, fore, s] of [
